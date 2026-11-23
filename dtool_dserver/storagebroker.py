@@ -1,6 +1,5 @@
 """Storage broker that accesses datasets through dserver signed URLs."""
 
-import ipaddress
 import json
 import logging
 import os
@@ -11,7 +10,19 @@ import requests
 
 from dtoolcore.storagebroker import BaseStorageBroker
 from dtoolcore.filehasher import FileHasher, md5sum_hexdigest
-from dtoolcore.utils import generate_identifier, mkdir_parents, get_config_value
+from dtoolcore.utils import generate_identifier, mkdir_parents
+
+from .auth import lookup_token
+from .connection import (
+    connection_error as _connection_error,
+    get_protocol as _get_protocol,
+)
+from .errors import (  # noqa: F401 (re-exported for backwards compatibility)
+    DServerAuthenticationError,
+    DServerDatasetNotFoundError,
+    DServerNotImplementedError,
+    DServerStorageBrokerError,
+)
 
 try:
     from dtool_dserver import __version__
@@ -62,83 +73,6 @@ Per item descriptive metadata: $UUID/overlays/
 Dataset key/value pairs metadata: $UUID/annotations/
 Dataset tags metadata: $UUID/tags/
 """
-
-
-class DServerStorageBrokerError(Exception):
-    """Base exception for DServerStorageBroker errors."""
-    pass
-
-
-class DServerAuthenticationError(DServerStorageBrokerError):
-    """Authentication error with dserver."""
-    pass
-
-
-class DServerDatasetNotFoundError(DServerStorageBrokerError):
-    """Dataset not found on dserver."""
-    pass
-
-
-class DServerNotImplementedError(DServerStorageBrokerError):
-    """Feature not implemented on dserver or storage backend."""
-    pass
-
-
-def _is_loopback(server):
-    """Return True if server (host[:port]) is a loopback address."""
-    host = urlparse(f"//{server}").hostname or ""
-    if host == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
-def _get_protocol(server, config_path=None):
-    """Return the protocol (http or https) used to talk to dserver.
-
-    Every request carries the user's token, so the default is https. Plain
-    http is the default only for loopback hosts (e.g. a local development
-    server). DSERVER_PROTOCOL overrides the default.
-    """
-    default = "http" if _is_loopback(server) else "https"
-    protocol = get_config_value(
-        'DSERVER_PROTOCOL', config_path=config_path, default=default)
-    if protocol not in ("http", "https"):
-        raise DServerStorageBrokerError(
-            f"Invalid DSERVER_PROTOCOL {protocol!r}, must be http or https")
-    return protocol
-
-
-def _connection_error(url, error):
-    """Return a DServerStorageBrokerError for a failed connection."""
-    message = f"Connection error: {error}"
-    if url.startswith("https://"):
-        message += (
-            ". If this dserver only serves plain HTTP, set "
-            "DSERVER_PROTOCOL=http (note that the token is then sent "
-            "unencrypted)."
-        )
-    return DServerStorageBrokerError(message)
-
-
-def _lookup_token(config_path=None):
-    """Get authentication token from environment or dtool config file."""
-    token = get_config_value('DSERVER_TOKEN', config_path=config_path)
-    if token:
-        return token
-
-    token_file = get_config_value('DSERVER_TOKEN_FILE', config_path=config_path)
-    if token_file and os.path.exists(token_file):
-        with open(token_file) as f:
-            return f.read().strip()
-
-    raise DServerAuthenticationError(
-        "No dserver token found. Set DSERVER_TOKEN (or DSERVER_TOKEN_FILE "
-        "pointing to a file containing the token) in the environment or "
-        "dtool config file."
-    )
 
 
 class DServerStorageBroker(BaseStorageBroker):
@@ -241,7 +175,7 @@ class DServerStorageBroker(BaseStorageBroker):
 
     def _get_token(self):
         """Get authentication token from environment or dtool config file."""
-        return _lookup_token(config_path=self._config_path)
+        return lookup_token(self._server, config_path=self._config_path)
 
     def _get_server_url(self, path):
         """Construct full URL for dserver API."""
@@ -784,7 +718,7 @@ class DServerStorageBroker(BaseStorageBroker):
         """List datasets by querying dserver API."""
         server, backend_base_uri = cls._parse_base_uri(base_uri)
 
-        token = _lookup_token(config_path=config_path)
+        token = lookup_token(server, config_path=config_path)
         protocol = _get_protocol(server, config_path=config_path)
 
         # Query dserver for URIs, following pagination
