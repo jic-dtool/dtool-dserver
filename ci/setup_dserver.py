@@ -50,6 +50,9 @@ def main():
     token = jwt.encode(
         {
             "sub": args.username,
+            # dserver requires audience and issuer "dserver" by default.
+            "aud": "dserver",
+            "iss": "dserver",
             "iat": now,
             "nbf": now,
             "exp": now + datetime.timedelta(hours=2),
