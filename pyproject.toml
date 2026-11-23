@@ -24,7 +24,7 @@ test = [
 ]
 
 [project.urls]
-Repository = "https://github.com/livMatS/dtool-dserver"
+Repository = "https://github.com/jic-dtool/dtool-dserver"
 
 [project.entry-points."dtool.storage_brokers"]
 DServerStorageBroker = "dtool_dserver.storagebroker:DServerStorageBroker"
