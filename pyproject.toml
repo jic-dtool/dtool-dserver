@@ -1,6 +1,6 @@
 [build-system]
-requires = ["flit_scm"]
-build-backend = "flit_scm:buildapi"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "dtool-dserver"
@@ -29,13 +29,18 @@ Repository = "https://github.com/jic-dtool/dtool-dserver"
 [project.entry-points."dtool.storage_brokers"]
 DServerStorageBroker = "dtool_dserver.storagebroker:DServerStorageBroker"
 
-[tool.flit.module]
-name = "dtool_dserver"
+[tool.hatch.version]
+source = "vcs"
+raw-options = { version_scheme = "guess-next-dev", local_scheme = "no-local-version" }
 
-[tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "no-local-version"
-write_to = "dtool_dserver/version.py"
+[tool.hatch.build.hooks.vcs]
+version-file = "dtool_dserver/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dtool_dserver"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [".github", ".pre-commit-config.yaml", "CLAUDE.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -14,4 +14,5 @@ Unreleased
 
 * Requires Python 3.10 or later.
 * Initial release.
+* Built with ``hatchling`` and ``hatch-vcs``; the version is derived from git tags.
 
