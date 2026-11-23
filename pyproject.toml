@@ -11,7 +11,7 @@ authors = [
     {name = "Lars Pastewka", email = "lars.pastewka@imtek.uni-freiburg.de"},
 ]
 dynamic = ["version"]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "dtoolcore>=3.18.0",
     "requests",
