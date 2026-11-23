@@ -31,7 +31,9 @@ Environment variables:
 
 - ``DSERVER_TOKEN``: JWT authentication token for dserver
 - ``DSERVER_TOKEN_FILE``: Alternative: path to file containing the token
-- ``DSERVER_PROTOCOL``: Protocol to use (http or https, default: http)
+- ``DSERVER_PROTOCOL``: Protocol to use (http or https). Default: https, as
+  every request carries the token; http for loopback hosts (``localhost``,
+  ``127.0.0.1``, ``::1``), e.g. a local development server
 - ``DSERVER_CACHE_DIR``: Cache directory for downloaded items
   (default: system temp directory)
 
