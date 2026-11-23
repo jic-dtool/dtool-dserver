@@ -24,13 +24,20 @@ Installation
 
     pip install dtool-dserver
 
+The ``dtool dserver`` commands (login, logout, status) need the dtool command
+line interface, ``pip install "dtool-cli>=0.7.2"``; older releases do not
+start on Python 3.12 and later.
+
 Configuration
 -------------
 
-Environment variables:
+Settings are read from the environment or the dtool config file
+(``~/.config/dtool/dtool.json``):
 
-- ``DSERVER_TOKEN``: JWT authentication token for dserver
-- ``DSERVER_TOKEN_FILE``: Alternative: path to file containing the token
+- ``DSERVER_TOKEN_<host[:port]>``: token for one dserver, as stored by
+  ``dtool dserver login`` (see Authentication)
+- ``DSERVER_TOKEN``: token used for all dservers without their own token
+- ``DSERVER_TOKEN_FILE``: alternatively, path to a file containing the token
 - ``DSERVER_PROTOCOL``: Protocol to use (http or https). Default: https, as
   every request carries the token; http for loopback hosts (``localhost``,
   ``127.0.0.1``, ``::1``), e.g. a local development server
@@ -68,17 +75,46 @@ Create a new dataset::
 Authentication
 --------------
 
-Obtain a token from dserver using the authentication endpoint::
+Log in once per dserver; the token is stored in the dtool config file
+(readable only by you) and used for all ``dserver://<server>/...`` URIs::
 
-    curl -X POST http://localhost:5000/token \
-         -H "Content-Type: application/json" \
-         -d '{"username": "user", "password": "pass"}'
+    dtool dserver login dserver.example.com
 
-Set the token in your environment::
+How you log in depends on the dserver:
 
-    export DSERVER_TOKEN=<your_token>
+- **OAuth2** (e.g. ORCID): dtool shows a short code and a link. Open the link
+  in a web browser, on this or any other machine (handy over SSH), log in as
+  usual and approve the code. Use ``--no-browser`` to not open a browser
+  automatically.
+- **LDAP**: enter your username and password
+  (``--username`` skips the username prompt).
 
-Or save it to a file::
+If a dserver offers both, choose with ``--method oauth2`` or
+``--method ldap``. You must be registered as a user in the dserver; ask its
+administrator otherwise.
 
-    echo "<your_token>" > ~/.dserver_token
-    export DSERVER_TOKEN_FILE=~/.dserver_token
+Tokens are valid for a day (depending on the dserver) and are refreshed
+automatically when they are about to expire, up to the dserver's maximum
+session length (by default a week after logging in). After that, log in
+again.
+
+Other commands::
+
+    dtool dserver status                          # servers you are logged in to
+    dtool dserver logout dserver.example.com      # remove the stored token
+
+Tokens can also be provided without logging in, e.g. in scripts or CI. For a
+dserver ``host[:port]``, the first of these is used:
+
+1. ``DSERVER_TOKEN_<host[:port]>`` (environment or dtool config file); this is
+   where ``dtool dserver login`` stores the token
+2. ``DSERVER_TOKEN`` (environment or dtool config file), for all dservers
+3. ``DSERVER_TOKEN_FILE``, a file containing the token, for all dservers
+
+Tokens from environment variables are never refreshed or stored. In the web
+interface (dtool-lookup-webapp), "Copy token to clipboard" in the user menu
+gives you a token, e.g. for ``DSERVER_TOKEN``.
+
+dserver is contacted over https, except for ``localhost``; set
+``DSERVER_PROTOCOL=http`` only for servers you trust on your local network,
+as the token is then sent unencrypted.

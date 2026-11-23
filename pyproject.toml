@@ -13,7 +13,8 @@ authors = [
 dynamic = ["version"]
 requires-python = ">=3.10"
 dependencies = [
-    "dtoolcore>=3.18.0",
+    "click",
+    "dtoolcore>=3.20.0",
     "requests",
 ]
 
@@ -28,6 +29,9 @@ Repository = "https://github.com/jic-dtool/dtool-dserver"
 
 [project.entry-points."dtool.storage_brokers"]
 DServerStorageBroker = "dtool_dserver.storagebroker:DServerStorageBroker"
+
+[project.entry-points."dtool.cli"]
+dserver = "dtool_dserver.cli:dserver"
 
 [tool.hatch.version]
 source = "vcs"
