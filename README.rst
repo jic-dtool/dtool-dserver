@@ -24,6 +24,10 @@ Installation
 
     pip install dtool-dserver
 
+The ``dtool dserver`` commands (login, logout, status) need the dtool command
+line interface, ``pip install "dtool-cli>=0.7.2"``; older releases do not
+start on Python 3.12 and later.
+
 Configuration
 -------------
 
