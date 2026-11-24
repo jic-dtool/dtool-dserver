@@ -29,6 +29,11 @@ Unreleased
   ``dtool dserver login`` through the device flow of the OAuth2 token
   generator plugin, ``dtool cp`` up and down with only the stored token,
   and ``dtool dserver logout``.
+* End-to-end CI of the command line with real logins: browser login at a mock
+  OAuth2 provider approving ``dtool dserver login``, LDAP password login
+  against OpenLDAP (with user creation on first login), automatic token
+  refresh, and ``dtool cp`` up and down compared with ``dtool diff --full``,
+  README, tags and annotations.
 
 0.1.0 (initial release)
 -----------------------
