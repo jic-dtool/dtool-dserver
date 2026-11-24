@@ -43,7 +43,8 @@ jobs:
 
   # Uploads a dataset through a running dserver into S3 using signed URLs,
   # reads and lists it through dserver, and downloads it again
-  # (tests/test_e2e.py). dserver runs with a minimal configuration: SQLite,
+  # (tests/test_e2e.py). Logs in with 'dtool dserver login' and copies a
+  # dataset with 'dtool cp' (tests/test_e2e_cli.py). dserver runs with a minimal configuration: SQLite,
   # MongoDB for search/retrieve, dserver-signed-url-plugin, and SeaweedFS as
   # the S3 storage.
   e2e:
@@ -83,6 +84,16 @@ jobs:
       RETRIEVE_MONGO_COLLECTION: datasets
       JWT_ALGORITHM: RS256
       JWT_PUBLIC_KEY_FILE: /tmp/dserver-e2e/jwt_key.pub
+      JWT_PRIVATE_KEY_FILE: /tmp/dserver-e2e/jwt_key
+      # OAuth2 token generator plugin, for the device login of the dtool
+      # CLI. The provider is never contacted; its settings only mark OAuth2
+      # as configured, so that 'dtool dserver login' picks it.
+      OAUTH2_BASE_URL: http://localhost:5000
+      OAUTH2_AUTHORIZATION_URL: https://oauth2.invalid/authorize
+      OAUTH2_TOKEN_URL: https://oauth2.invalid/token
+      OAUTH2_CLIENT_ID: dserver-e2e
+      OAUTH2_CLIENT_SECRET: unused
+      OAUTH2_DEVICE_POLL_INTERVAL: '1'
       # Test setup (ci/start_dserver.sh) and client configuration.
       E2E_WORK_DIR: /tmp/dserver-e2e
       E2E_USERNAME: testuser
@@ -129,6 +140,8 @@ jobs:
           "dserver-search-plugin-mongo @ git+https://github.com/jic-dtool/dserver-search-plugin-mongo.git" \
           "dserver-retrieve-plugin-mongo @ git+https://github.com/jic-dtool/dserver-retrieve-plugin-mongo.git" \
           "dserver-signed-url-plugin @ git+https://github.com/jic-dtool/dserver-signed-url-plugin.git" \
+          "dserver-token-generator-plugin-oauth2 @ git+https://github.com/jic-dtool/dserver-token-generator-plugin-oauth2.git" \
+          "dtool-cli>=0.7.2" dtool-create dtool-info \
           PyJWT
         pip install -e ".[test]"
         pip list
@@ -167,7 +180,7 @@ jobs:
       run: ci/start_dserver.sh
 
     - name: End-to-end tests
-      run: pytest -v -rfEs tests/test_e2e.py
+      run: pytest -v -rfEs tests/test_e2e.py tests/test_e2e_cli.py
 
     - name: dserver log
       if: always()

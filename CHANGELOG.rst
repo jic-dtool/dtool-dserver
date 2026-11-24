@@ -25,6 +25,10 @@ Unreleased
   listing and downloading a dataset through a running dserver with S3
   (SeaweedFS) storage. CI also runs the unit tests now (previously only
   lint and an import check), on Python 3.10-3.14.
+* End-to-end test of the command line (``tests/test_e2e_cli.py``):
+  ``dtool dserver login`` through the device flow of the OAuth2 token
+  generator plugin, ``dtool cp`` up and down with only the stored token,
+  and ``dtool dserver logout``.
 
 0.1.0 (initial release)
 -----------------------
