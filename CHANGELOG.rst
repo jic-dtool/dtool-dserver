@@ -36,6 +36,14 @@ Unreleased
   README, tags and annotations.
 * README: "Getting started" walkthrough for users (install, log in, copy)
   and "Setting up a dserver for command-line logins" for administrators.
+* ``dtool dserver login http://<server>`` remembers to use plain http for
+  this server (``DSERVER_PROTOCOL_<host[:port]>`` in the dtool config file;
+  warns that credentials are sent unencrypted); ``login https://<server>``
+  and ``logout`` forget it, ``status`` shows it. Takes precedence over the
+  global ``DSERVER_PROTOCOL``. The https connection error now suggests this
+  login instead of ``DSERVER_PROTOCOL``.
+* ``DSERVER_CACHE_DIR`` can also be set in the dtool config file, like all
+  other settings.
 
 0.1.0 (initial release)
 -----------------------

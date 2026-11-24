@@ -10,7 +10,11 @@ import requests
 
 from dtoolcore.storagebroker import BaseStorageBroker
 from dtoolcore.filehasher import FileHasher, md5sum_hexdigest
-from dtoolcore.utils import generate_identifier, mkdir_parents
+from dtoolcore.utils import (
+    generate_identifier,
+    get_config_value,
+    mkdir_parents,
+)
 
 from .auth import lookup_token
 from .connection import (
@@ -229,9 +233,10 @@ class DServerStorageBroker(BaseStorageBroker):
 
     def _get_cache_dir(self):
         """Get or create cache directory for downloaded items."""
-        cache_base = os.environ.get(
+        cache_base = get_config_value(
             'DSERVER_CACHE_DIR',
-            os.path.join(tempfile.gettempdir(), 'dtool-dserver-cache')
+            config_path=self._config_path,
+            default=os.path.join(tempfile.gettempdir(), 'dtool-dserver-cache'),
         )
         cache_dir = os.path.join(cache_base, self.uuid)
         mkdir_parents(cache_dir)

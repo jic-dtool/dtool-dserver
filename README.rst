@@ -170,10 +170,14 @@ interface (dtool-lookup-webapp), "Copy token to clipboard" in the user menu
 gives you a token, e.g. for ``DSERVER_TOKEN``.
 
 Plain http: dserver is contacted over https, except for ``localhost``,
-``127.0.0.1`` and ``::1``. Set ``DSERVER_PROTOCOL=http`` (environment or
-dtool config file) only for a dserver you trust on your local network, as
-your token is then sent unencrypted.
+``127.0.0.1`` and ``::1``. For a dserver that only serves plain http, e.g. on
+your local network, log in with ``dtool dserver login http://<server>``; dtool
+remembers to use http for this server (``DSERVER_PROTOCOL_<host[:port]>`` in
+the dtool config file) until you log in with ``https://`` or log out. Your
+password and token are then sent unencrypted, so do this only for a dserver
+you trust on a network you trust. ``DSERVER_PROTOCOL`` sets the protocol for
+all dservers.
 
 Download cache: downloaded items are cached in ``dtool-dserver-cache`` in the
-system's temporary directory; set ``DSERVER_CACHE_DIR`` (environment only) to
-use another directory.
+system's temporary directory; set ``DSERVER_CACHE_DIR`` (environment or dtool
+config file) to use another directory.

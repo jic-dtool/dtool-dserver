@@ -28,7 +28,7 @@ from dtoolcore.utils import (
     write_config_value_to_file,
 )
 
-from .connection import server_url
+from .connection import is_loopback, protocol_key, server_url
 from .errors import DServerAuthenticationError, DServerStorageBrokerError
 
 logger = logging.getLogger(__name__)
@@ -119,11 +119,10 @@ def _read_config(config_path):
         return json.load(fh)
 
 
-def remove_token(server, config_path=None):
-    """Remove a stored token; return whether there was one."""
-    config_path = _config_path(config_path)
+def _remove_config_value(key, config_path):
+    """Remove a key from the dtool config file; return whether it was set."""
     config = _read_config(config_path)
-    if config.pop(token_key(server), None) is None:
+    if config.pop(key, None) is None:
         return False
     # Write with owner-only permissions from the start: the file holds tokens.
     fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
@@ -132,6 +131,37 @@ def remove_token(server, config_path=None):
         json.dump(config, fh, sort_keys=True, indent=2)
     os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
     return True
+
+
+def remove_token(server, config_path=None):
+    """Remove a stored token; return whether there was one."""
+    return _remove_config_value(token_key(server), _config_path(config_path))
+
+
+def store_protocol(server, protocol, config_path=None):
+    """Remember the protocol of a server in the dtool config file.
+
+    Only a protocol other than the default (https; http for loopback hosts)
+    is stored; storing the default removes a stored protocol.
+    """
+    config_path = _config_path(config_path)
+    if protocol == ("http" if is_loopback(server) else "https"):
+        _remove_config_value(protocol_key(server), config_path)
+    else:
+        write_config_value_to_file(protocol_key(server), protocol,
+                                   config_path=config_path)
+
+
+def stored_protocol(server, config_path=None):
+    """Return the protocol stored for a server, or None."""
+    return get_config_value_from_file(protocol_key(server),
+                                      config_path=_config_path(config_path))
+
+
+def remove_protocol(server, config_path=None):
+    """Forget the protocol stored for a server."""
+    return _remove_config_value(protocol_key(server),
+                                _config_path(config_path))
 
 
 def stored_servers(config_path=None):

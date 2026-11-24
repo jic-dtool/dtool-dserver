@@ -17,6 +17,8 @@ from .test_auth import (  # NOQA
     make_token,
 )
 
+PROTOCOL_KEY = f"DSERVER_PROTOCOL_{SERVER}"
+
 
 @pytest.fixture
 def server(monkeypatch):
@@ -125,3 +127,84 @@ def test_status_without_logins(config_path, server):  # NOQA
     result = _invoke("status")
     assert result.exit_code == 0
     assert "Not logged in" in result.output
+
+
+
+def _ldap_routes(server, token):
+    server.route("POST", "/auth/ldap/token",
+                 FakeResponse(200, {"token": token}))
+    server.route("GET", "/me", lambda kwargs: FakeResponse(
+        200, {"username": "bob"}))
+
+
+def _config(config_path):  # NOQA
+    with open(config_path) as fh:
+        return json.load(fh)
+
+
+def test_login_over_http_remembers_protocol(config_path, monkeypatch):  # NOQA
+    """`dtool dserver login http://host` talks http to this server, now and
+    later, without any configuration."""
+    server = FakeServer(monkeypatch, url=f"http://{SERVER}")
+    _ldap_routes(server, make_token("bob"))
+
+    result = _invoke("login", f"http://{SERVER}", "--method", "ldap",
+                     "--username", "bob", input="secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert "unencrypted" in result.output
+    assert _config(config_path)[PROTOCOL_KEY] == "http"
+
+    from dtool_dserver.connection import server_url
+    assert server_url(SERVER) == f"http://{SERVER}"
+    assert f"{SERVER} (http)" in _invoke("status").output
+
+
+def test_login_over_https_forgets_http(config_path, monkeypatch):  # NOQA
+    with open(config_path, "w") as fh:
+        json.dump({PROTOCOL_KEY: "http"}, fh)
+    server = FakeServer(monkeypatch)  # https
+    _ldap_routes(server, make_token("bob"))
+
+    result = _invoke("login", f"https://{SERVER}", "--method", "ldap",
+                     "--username", "bob", input="secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert "unencrypted" not in result.output
+    assert PROTOCOL_KEY not in _config(config_path)
+
+
+def test_login_without_scheme_keeps_protocol(config_path, monkeypatch):  # NOQA
+    with open(config_path, "w") as fh:
+        json.dump({PROTOCOL_KEY: "http"}, fh)
+    server = FakeServer(monkeypatch, url=f"http://{SERVER}")
+    _ldap_routes(server, make_token("bob"))
+
+    result = _invoke("login", SERVER, "--method", "ldap",
+                     "--username", "bob", input="secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert _config(config_path)[PROTOCOL_KEY] == "http"
+
+
+def test_failed_login_does_not_store_protocol(config_path, monkeypatch):  # NOQA
+    server = FakeServer(monkeypatch, url=f"http://{SERVER}")
+    server.route("POST", "/auth/ldap/token",
+                 FakeResponse(401, {"error": "Invalid credentials"}))
+
+    result = _invoke("login", f"http://{SERVER}", "--method", "ldap",
+                     "--username", "bob", input="wrong\n")
+
+    assert result.exit_code != 0
+    import os
+    assert not os.path.exists(config_path) or \
+        PROTOCOL_KEY not in _config(config_path)
+
+
+def test_logout_forgets_protocol(config_path, monkeypatch):  # NOQA
+    with open(config_path, "w") as fh:
+        json.dump({PROTOCOL_KEY: "http",
+                   auth.token_key(SERVER): make_token("bob")}, fh)
+    result = _invoke("logout", SERVER)
+    assert result.exit_code == 0, result.output
+    assert _config(config_path) == {}
