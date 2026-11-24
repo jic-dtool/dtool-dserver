@@ -13,6 +13,11 @@ on:
 jobs:
   test:
     uses: ./.github/workflows/test.yml
+    # The coverage job of test.yml requests these (it comments and stores the
+    # badge only for pull requests and main, not for releases).
+    permissions:
+      contents: write
+      pull-requests: write
 
   build:
     needs: test

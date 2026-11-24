@@ -41,6 +41,14 @@ jobs:
     - name: Test
       run: pytest -v -rfEs
 
+    - name: Upload coverage data
+      if: matrix.python-version == '3.14'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-unit
+        path: .coverage
+        include-hidden-files: true
+
   # Uploads a dataset through a running dserver into S3 using signed URLs,
   # reads and lists it through dserver, and downloads it again
   # (tests/test_e2e.py). Logs in with 'dtool dserver login' and copies
@@ -224,6 +232,14 @@ jobs:
     - name: End-to-end tests
       run: pytest -v -rfEs tests/test_e2e.py tests/test_e2e_cli.py
 
+    - name: Upload coverage data
+      if: matrix.python-version == '3.14'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-e2e
+        path: .coverage
+        include-hidden-files: true
+
     - name: dserver log
       if: always()
       run: cat /tmp/dserver-e2e/dserver.log || true
@@ -231,3 +247,56 @@ jobs:
     - name: SeaweedFS log
       if: failure()
       run: docker logs seaweedfs 2>&1 | tail -100
+
+  # Combines the coverage of the unit and end-to-end tests (including the
+  # dtool commands run as subprocesses), fails below the minimum, and reports
+  # it: job summary, a comment on pull requests (change against main), and a
+  # badge and history on the branch python-coverage-comment-action-data.
+  coverage:
+    needs: [test, e2e]
+    runs-on: ubuntu-24.04
+    permissions:
+      # Comment on pull requests; store badge and history (pushes to main).
+      pull-requests: write
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+
+    - name: Download coverage data
+      uses: actions/download-artifact@v4
+      with:
+        pattern: coverage-*
+
+    - name: Combine coverage
+      run: |
+        pip install "coverage>=7.10"
+        mv coverage-unit/.coverage .coverage.unit
+        mv coverage-e2e/.coverage .coverage.e2e
+        coverage combine
+        coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+        coverage report --fail-under=85
+
+    - name: Coverage comment and badge
+      id: coverage_comment
+      # Not for releases (tag pushes, via the publish workflow).
+      if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+      uses: py-cov-action/python-coverage-comment-action@v3
+      with:
+        GITHUB_TOKEN: ${{ github.token }}
+        MINIMUM_GREEN: 85
+        MINIMUM_ORANGE: 75
+
+    # Pull requests from forks may not comment; their comment is posted by
+    # the coverage-comment workflow.
+    - name: Store pull request comment
+      if: steps.coverage_comment.outputs.COMMENT_FILE_WRITTEN == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-coverage-comment-action
+        path: python-coverage-comment-action.txt
