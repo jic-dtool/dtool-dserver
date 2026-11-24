@@ -205,9 +205,10 @@ def ldap_login(env, server, username, password):
 
 def assert_same_dataset(env, uri, reference_uri):
     """Compare two datasets with the dtool command line."""
-    # Identifiers, sizes and (--full) content hashes; no output if equal.
+    # Identifiers, sizes and (--full) content hashes. dtool diff prints its
+    # progress; differences show as "Different ..." and exit codes 1-3.
     result = dtool(env, "diff", "--full", uri, reference_uri, check=False)
-    assert result.returncode == 0 and result.stdout.strip() == "", \
+    assert result.returncode == 0 and "Different" not in result.stdout, \
         result.stdout + result.stderr
     for command in (["readme", "show"], ["tag", "ls"], ["annotation", "ls"]):
         assert dtool(env, *command, uri).stdout == \
