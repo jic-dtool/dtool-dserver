@@ -46,7 +46,8 @@ class FakeResponse:
 class FakeServer:
     """Routes requests.request calls to handlers by (method, path)."""
 
-    def __init__(self, monkeypatch):
+    def __init__(self, monkeypatch, url=URL):
+        self.url = url
         self.routes = {}
         self.calls = []
         monkeypatch.setattr(requests, "request", self.request)
@@ -55,8 +56,8 @@ class FakeServer:
         self.routes[(method, path)] = list(responses)
 
     def request(self, method, url, **kwargs):
-        assert url.startswith(URL), url
-        path = url[len(URL):]
+        assert url.startswith(self.url), url
+        path = url[len(self.url):]
         self.calls.append((method, path, kwargs))
         responses = self.routes.get((method, path))
         if not responses:

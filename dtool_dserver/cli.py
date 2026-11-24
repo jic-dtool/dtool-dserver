@@ -12,16 +12,23 @@ import webbrowser
 import click
 
 from . import auth
-from .connection import server_url
+from .connection import is_loopback, server_url
 from .errors import DServerStorageBrokerError
 
 
 def _server(value):
-    """Accept host[:port], a URL or a dserver:// URI; return host[:port]."""
+    """Accept host[:port], a URL or a dserver:// URI.
+
+    Returns host[:port] and the protocol if given as http:// or https://
+    (else None).
+    """
+    protocol = None
     for prefix in ("dserver://", "https://", "http://"):
         if value.startswith(prefix):
             value = value[len(prefix):]
-    return value.split("/", 1)[0]
+            if prefix != "dserver://":
+                protocol = prefix[:-len("://")]
+    return value.split("/", 1)[0], protocol
 
 
 def _expiry(token):
@@ -53,10 +60,17 @@ def login(server, method, username, no_browser):
 
     With OAuth2 (e.g. ORCID), approve the login in a web browser, on this or
     any other machine. With LDAP, enter username and password.
+
+    dserver is contacted over https (http for localhost). For a dserver that
+    only serves plain http, log in to http://SERVER; dtool then remembers to
+    use http for it.
     """
-    server = _server(server)
+    server, protocol = _server(server)
+    if protocol == "http" and not is_loopback(server):
+        click.echo(f"Warning: {server} is contacted over plain http; your "
+                   f"password or token is sent unencrypted.", err=True)
     try:
-        base_url = server_url(server)
+        base_url = f"{protocol}://{server}" if protocol else server_url(server)
         if method == "auto":
             methods = auth.available_methods(base_url)
             if not methods:
@@ -86,6 +100,8 @@ def login(server, method, username, no_browser):
         raise click.ClickException(str(e))
 
     auth.store_token(server, token)
+    if protocol is not None:
+        auth.store_protocol(server, protocol)
     click.echo(f"Logged in to {server} as {user.get('username')} "
                f"({_expiry(token)}).")
 
@@ -94,7 +110,8 @@ def login(server, method, username, no_browser):
 @click.argument("server")
 def logout(server):
     """Remove the stored token of SERVER."""
-    server = _server(server)
+    server, _ = _server(server)
+    auth.remove_protocol(server)
     if auth.remove_token(server):
         click.echo(f"Logged out of {server}.")
     else:
@@ -111,4 +128,6 @@ def status():
     for server in servers:
         token = auth.stored_token(server)
         user = auth.token_claims(token).get("sub", "unknown user")
-        click.echo(f"{server}: {user}, {_expiry(token)}")
+        name = f"{server} (http)" \
+            if auth.stored_protocol(server) == "http" else server
+        click.echo(f"{name}: {user}, {_expiry(token)}")

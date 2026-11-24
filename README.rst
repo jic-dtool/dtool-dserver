@@ -61,22 +61,6 @@ Installation
 3.28 or later is needed on Python 3.12 and later (dtool-cli 0.7.2). The
 broker alone, without command line, is ``pip install dtool-dserver``.
 
-Configuration
--------------
-
-Settings are read from the environment or the dtool config file
-(``~/.config/dtool/dtool.json``):
-
-- ``DSERVER_TOKEN_<host[:port]>``: token for one dserver, as stored by
-  ``dtool dserver login`` (see Authentication)
-- ``DSERVER_TOKEN``: token used for all dservers without their own token
-- ``DSERVER_TOKEN_FILE``: alternatively, path to a file containing the token
-- ``DSERVER_PROTOCOL``: Protocol to use (http or https). Default: https, as
-  every request carries the token; http for loopback hosts (``localhost``,
-  ``127.0.0.1``, ``::1``), e.g. a local development server
-- ``DSERVER_CACHE_DIR``: Cache directory for downloaded items
-  (default: system temp directory)
-
 URI Format
 ----------
 
@@ -136,22 +120,6 @@ Other commands::
     dtool dserver status                          # servers you are logged in to
     dtool dserver logout dserver.example.com      # remove the stored token
 
-Tokens can also be provided without logging in, e.g. in scripts or CI. For a
-dserver ``host[:port]``, the first of these is used:
-
-1. ``DSERVER_TOKEN_<host[:port]>`` (environment or dtool config file); this is
-   where ``dtool dserver login`` stores the token
-2. ``DSERVER_TOKEN`` (environment or dtool config file), for all dservers
-3. ``DSERVER_TOKEN_FILE``, a file containing the token, for all dservers
-
-Tokens from environment variables are never refreshed or stored. In the web
-interface (dtool-lookup-webapp), "Copy token to clipboard" in the user menu
-gives you a token, e.g. for ``DSERVER_TOKEN``.
-
-dserver is contacted over https, except for ``localhost``; set
-``DSERVER_PROTOCOL=http`` only for servers you trust on your local network,
-as the token is then sent unencrypted.
-
 Setting up a dserver for command-line logins
 --------------------------------------------
 
@@ -181,3 +149,35 @@ For administrators. ``dtool dserver login`` needs on the server side:
   search_permission`` / ``flask user register_permission``, or automatically
   on first login where the plugin provisions users).
 - **https**: the CLI contacts dservers over https (except ``localhost``).
+
+Advanced configuration (optional)
+---------------------------------
+
+Nothing needs to be configured: ``dtool dserver login`` stores everything
+dtool needs. The following settings are for special cases.
+
+Tokens without logging in, e.g. in scripts or CI. For a dserver
+``host[:port]``, the first of these is used (environment or dtool config
+file ``~/.config/dtool/dtool.json``):
+
+1. ``DSERVER_TOKEN_<host[:port]>``; this is where ``dtool dserver login``
+   stores the token
+2. ``DSERVER_TOKEN``, for all dservers
+3. ``DSERVER_TOKEN_FILE``, a file containing the token, for all dservers
+
+Tokens from environment variables are never refreshed or stored. In the web
+interface (dtool-lookup-webapp), "Copy token to clipboard" in the user menu
+gives you a token, e.g. for ``DSERVER_TOKEN``.
+
+Plain http: dserver is contacted over https, except for ``localhost``,
+``127.0.0.1`` and ``::1``. For a dserver that only serves plain http, e.g. on
+your local network, log in with ``dtool dserver login http://<server>``; dtool
+remembers to use http for this server (``DSERVER_PROTOCOL_<host[:port]>`` in
+the dtool config file) until you log in with ``https://`` or log out. Your
+password and token are then sent unencrypted, so do this only for a dserver
+you trust on a network you trust. ``DSERVER_PROTOCOL`` sets the protocol for
+all dservers.
+
+Download cache: downloaded items are cached in ``dtool-dserver-cache`` in the
+system's temporary directory; set ``DSERVER_CACHE_DIR`` (environment or dtool
+config file) to use another directory.
