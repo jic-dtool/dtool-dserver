@@ -1,6 +1,10 @@
 dtool-dserver
 =============
 
+.. image:: https://github.com/jic-dtool/dtool-dserver/raw/python-coverage-comment-action-data/badge.svg
+   :target: https://github.com/jic-dtool/dtool-dserver/tree/python-coverage-comment-action-data
+   :alt: Coverage
+
 A dtool storage broker that accesses datasets through a dserver instance
 using signed URLs.
 

@@ -57,3 +57,6 @@ Tests and CI
   OpenLDAP (with user creation on first login), automatic token refresh, and
   ``dtool cp`` up and down compared with ``dtool diff --full``, README, tags
   and annotations.
+* Code coverage of unit and end-to-end tests combined (including the
+  ``dtool`` commands run as subprocesses), at least 85 % required; reported
+  on pull requests and as a badge.

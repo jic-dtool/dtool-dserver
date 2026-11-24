@@ -280,7 +280,7 @@ jobs:
         mv coverage-e2e/.coverage .coverage.e2e
         coverage combine
         coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
-        coverage report --fail-under=0
+        coverage report --fail-under=85
 
     - name: Coverage comment and badge
       id: coverage_comment
@@ -289,6 +289,8 @@ jobs:
       uses: py-cov-action/python-coverage-comment-action@v3
       with:
         GITHUB_TOKEN: ${{ github.token }}
+        MINIMUM_GREEN: 85
+        MINIMUM_ORANGE: 75
 
     # Pull requests from forks may not comment; their comment is posted by
     # the coverage-comment workflow.
