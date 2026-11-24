@@ -17,16 +17,49 @@ Features
 - Support for all dtool operations (ls, cp, info, item fetch, etc.)
 - Backend-agnostic (works with any storage backend dserver supports)
 
+Getting started
+---------------
+
+1. Install the dtool command line tools with this broker::
+
+       pip install "dtool>=3.28" dtool-dserver
+
+2. Log in to your dserver, once per machine::
+
+       dtool dserver login dserver.example.com
+
+   With OAuth2 (e.g. ORCID), dtool opens the dserver web interface in your
+   browser and shows a short code. Sign in there; the web interface asks you
+   to approve "dtool on <your machine>". Check that the code matches the one
+   in your terminal and click *Approve*. On a remote machine (e.g. over SSH),
+   add ``--no-browser`` and open the printed link on any other device. With
+   LDAP, enter your username and password instead.
+
+3. Use ``dserver://`` URIs with any dtool command::
+
+       dtool ls dserver://dserver.example.com/s3/my-bucket
+       dtool cp ./my-dataset dserver://dserver.example.com/s3/my-bucket
+       dtool cp dserver://dserver.example.com/s3/my-bucket/<uuid> ./downloads
+
+You need no credentials for the storage (S3, Azure) itself: dserver hands out
+signed URLs. What you can list and download (search permission) and upload
+(register permission) for a storage location is decided by the dserver's
+administrator.
+
+Your login is kept in the dtool config file and renewed automatically while
+you use it, for up to a week (depending on the dserver); then run
+``dtool dserver login`` again. See Authentication for details.
+
 Installation
 ------------
 
 .. code-block:: bash
 
-    pip install dtool-dserver
+    pip install "dtool>=3.28" dtool-dserver
 
-The ``dtool dserver`` commands (login, logout, status) need the dtool command
-line interface, ``pip install "dtool-cli>=0.7.2"``; older releases do not
-start on Python 3.12 and later.
+``dtool`` installs the command line tools (``dtool cp``, ``dtool ls``, ...);
+3.28 or later is needed on Python 3.12 and later (dtool-cli 0.7.2). The
+broker alone, without command line, is ``pip install dtool-dserver``.
 
 Configuration
 -------------
@@ -118,3 +151,33 @@ gives you a token, e.g. for ``DSERVER_TOKEN``.
 dserver is contacted over https, except for ``localhost``; set
 ``DSERVER_PROTOCOL=http`` only for servers you trust on your local network,
 as the token is then sent unencrypted.
+
+Setting up a dserver for command-line logins
+--------------------------------------------
+
+For administrators. ``dtool dserver login`` needs on the server side:
+
+- **OAuth2 logins**: ``dserver-token-generator-plugin-oauth2`` with the device
+  authorization flow. It stores pending logins in dserver's SQL database;
+  create its table with ``flask db migrate`` and ``flask db upgrade`` after
+  installing or upgrading the plugin. ``OAUTH2_DEVICE_VERIFICATION_URL`` (or
+  ``OAUTH2_FRONTEND_URL``) must point to the web interface, where users
+  approve logins.
+- **The web interface**: a dtool-lookup-webapp version with the login
+  approval dialog (newer than 0.4.0). Point it to the plugin's endpoints
+  under ``/auth/oauth2`` with ``VUE_APP_OAUTH2_LOGIN_URL`` (``.../login``),
+  ``VUE_APP_DTOOL_LOOKUP_SERVER_TOKEN_GENERATOR_URL`` (``.../token``) and
+  ``VUE_APP_DTOOL_LOOKUP_SERVER_AUTH_LOGOUT_URL`` (``.../logout``); the device
+  approval endpoints (``.../device``) are found by default.
+- **LDAP logins**: ``dserver-token-generator-plugin-ldap``.
+- **Token claims**: dserver accepts only tokens with audience and issuer
+  ``dserver`` by default (``JWT_DECODE_AUDIENCE`` / ``JWT_DECODE_ISSUER``);
+  both plugins issue them.
+- **Session length**: tokens last ``JWT_TOKEN_EXPIRY_HOURS`` (default 24) and
+  are refreshed up to ``JWT_MAX_SESSION_HOURS`` (default 168) after the
+  browser login.
+- **Users and permissions**: users need search permission on a base URI to
+  list and download, register permission to upload (``flask user
+  search_permission`` / ``flask user register_permission``, or automatically
+  on first login where the plugin provisions users).
+- **https**: the CLI contacts dservers over https (except ``localhost``).

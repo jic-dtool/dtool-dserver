@@ -34,6 +34,8 @@ Unreleased
   against OpenLDAP (with user creation on first login), automatic token
   refresh, and ``dtool cp`` up and down compared with ``dtool diff --full``,
   README, tags and annotations.
+* README: "Getting started" walkthrough for users (install, log in, copy)
+  and "Setting up a dserver for command-line logins" for administrators.
 
 0.1.0 (initial release)
 -----------------------
