@@ -50,11 +50,12 @@ def test_fetch_signed_urls_requires_dataset_uri(monkeypatch):
 
 
 def _paged_post(pages):
-    """Return a fake requests.post serving the given pages of /uris."""
+    """Return a fake requests.request serving the given pages of /uris."""
     calls = []
 
-    def fake_post(url, headers=None, params=None, json=None):
-        calls.append(params)
+    def fake_post(method, url, headers=None, params=None, json=None):
+        assert (method, url) == ("POST", f"https://{SERVER}/uris")
+        calls.append(dict(params, query=json))
         page = params["page"]
         items, total_pages = pages(page)
         return FakeResponse(
@@ -75,13 +76,33 @@ def test_list_dataset_uris_follows_pagination(monkeypatch):
         return [{"uri": "s3://my-bucket/uuid-last"}], 2
 
     fake_post, calls = _paged_post(pages)
-    monkeypatch.setattr(sbmod.requests, "post", fake_post)
+    monkeypatch.setattr(sbmod.requests, "request", fake_post)
 
     uris = DServerStorageBroker.list_dataset_uris(BUCKET_BASE)
 
     assert len(uris) == 4
     assert uris[-1] == f"dserver://{SERVER}/s3/my-bucket/uuid-last"
     assert [c["page"] for c in calls] == [1, 2]
+    assert calls[0]["query"] == {"base_uris": ["s3://my-bucket"]}
+
+
+def test_list_server_uri_lists_all_storage_locations(monkeypatch):
+    """dserver://server/ lists the datasets of all storage locations the
+    user can search (no base URI filter)."""
+    monkeypatch.setenv("DSERVER_TOKEN", "test-token")
+
+    def pages(page):
+        return [{"uri": "s3://bucket-a/uuid-1"},
+                {"uri": "azure://container-b/uuid-2"}], 1
+
+    fake_post, calls = _paged_post(pages)
+    monkeypatch.setattr(sbmod.requests, "request", fake_post)
+
+    uris = DServerStorageBroker.list_dataset_uris(f"dserver://{SERVER}/")
+
+    assert uris == [f"dserver://{SERVER}/s3/bucket-a/uuid-1",
+                    f"dserver://{SERVER}/azure/container-b/uuid-2"]
+    assert calls[0]["query"] == {}
 
 
 def test_list_dataset_uris_skips_unrepresentable(monkeypatch, caplog):
@@ -95,7 +116,7 @@ def test_list_dataset_uris_skips_unrepresentable(monkeypatch, caplog):
         ], 1
 
     fake_post, _ = _paged_post(pages)
-    monkeypatch.setattr(sbmod.requests, "post", fake_post)
+    monkeypatch.setattr(sbmod.requests, "request", fake_post)
 
     with caplog.at_level(logging.WARNING):
         uris = DServerStorageBroker.list_dataset_uris(BUCKET_BASE)
@@ -107,7 +128,7 @@ def test_list_dataset_uris_skips_unrepresentable(monkeypatch, caplog):
 def test_list_dataset_uris_rejects_invalid_base(monkeypatch):
     monkeypatch.setenv("DSERVER_TOKEN", "test-token")
     with pytest.raises(ValueError):
-        DServerStorageBroker.list_dataset_uris(f"dserver://{SERVER}/")
+        DServerStorageBroker.list_dataset_uris(f"dserver://{SERVER}/s3")
 
 
 def test_token_from_config_file(tmp_path, monkeypatch):

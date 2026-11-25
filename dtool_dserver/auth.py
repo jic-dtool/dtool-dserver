@@ -20,6 +20,8 @@ import logging
 import os
 import stat
 import time
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from dtoolcore.utils import (
@@ -28,7 +30,7 @@ from dtoolcore.utils import (
     write_config_value_to_file,
 )
 
-from .connection import is_loopback, protocol_key, server_url
+from .connection import is_loopback, protocol_key, server_url, url_key
 from .errors import DServerAuthenticationError, DServerStorageBrokerError
 
 logger = logging.getLogger(__name__)
@@ -164,6 +166,23 @@ def remove_protocol(server, config_path=None):
                                 _config_path(config_path))
 
 
+def store_url(server, url, config_path=None):
+    """Remember the dserver API URL of a server name in the config file."""
+    write_config_value_to_file(url_key(server), url,
+                               config_path=_config_path(config_path))
+
+
+def stored_url(server, config_path=None):
+    """Return the dserver API URL stored for a server name, or None."""
+    return get_config_value_from_file(url_key(server),
+                                      config_path=_config_path(config_path))
+
+
+def remove_url(server, config_path=None):
+    """Forget the dserver API URL stored for a server name."""
+    return _remove_config_value(url_key(server), _config_path(config_path))
+
+
 def stored_servers(config_path=None):
     """Return the servers with a token in the dtool config file."""
     config = _read_config(_config_path(config_path))
@@ -226,6 +245,74 @@ def _request(method, url, **kwargs):
     except requests.exceptions.RequestException as e:
         from .connection import connection_error
         raise connection_error(url, e)
+
+
+def is_dserver(url):
+    """Return whether url is the base URL of a dserver API."""
+    try:
+        response = requests.request("GET", f"{url}/config/health",
+                                    timeout=TIMEOUT)
+        return response.status_code == 200 and \
+            "status" in response.json()
+    except (requests.exceptions.RequestException, ValueError, TypeError):
+        return False
+
+
+class _DServerMetaParser(HTMLParser):
+    """Find <meta name="dserver-url" content="..."> in a web page."""
+
+    def __init__(self):
+        super().__init__()
+        self.url = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "meta" and attrs.get("name") == "dserver-url" \
+                and self.url is None:
+            self.url = attrs.get("content")
+
+
+def _named_dserver(page_url):
+    """Return the dserver URL a web page names, or None."""
+    try:
+        response = requests.request("GET", page_url, timeout=TIMEOUT)
+    except requests.exceptions.RequestException:
+        return None
+    if response.status_code != 200 or \
+            "html" not in response.headers.get("Content-Type", ""):
+        return None
+    parser = _DServerMetaParser()
+    parser.feed(response.text)
+    if not parser.url:
+        return None
+    return urljoin(response.url or page_url, parser.url).rstrip("/")
+
+
+def find_dserver(url):
+    """Return the base URL of the dserver API at url.
+
+    url is either the dserver API itself, or (any page of) the web
+    interface (dtool-lookup-webapp), whose page names its dserver in
+    ``<meta name="dserver-url" content="...">``.
+    """
+    url = url.rstrip("/")
+    if is_dserver(url):
+        return url
+    parts = urlsplit(url)
+    root = f"{parts.scheme}://{parts.netloc}"
+    for page_url in dict.fromkeys([url, f"{root}/"]):
+        api_url = _named_dserver(page_url)
+        if api_url is None:
+            continue
+        if is_dserver(api_url):
+            return api_url
+        raise DServerStorageBrokerError(
+            f"The web interface at {url} names {api_url} as its dserver, "
+            f"but there is no dserver at {api_url}.")
+    # Raise the connection error, if there is one.
+    _request("GET", url)
+    raise DServerStorageBrokerError(
+        f"{url} is neither a dserver nor a dserver web interface.")
 
 
 def available_methods(base_url):
@@ -320,11 +407,16 @@ __all__ = [
     "device_login",
     "ldap_login",
     "lookup_token",
+    "find_dserver",
+    "is_dserver",
     "refresh_if_expiring",
     "remove_token",
+    "remove_url",
     "store_token",
     "stored_servers",
     "stored_token",
+    "stored_url",
+    "store_url",
     "token_claims",
     "token_key",
     "whoami",

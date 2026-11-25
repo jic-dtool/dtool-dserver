@@ -28,9 +28,10 @@ Getting started
 
        pip install "dtool>=3.28" dtool-dserver
 
-2. Log in to your dserver, once per machine::
+2. Log in to your dserver, once per machine, with the address of its web
+   interface as you see it in your browser::
 
-       dtool dserver login dserver.example.com
+       dtool dserver login https://dserver.example.com
 
    With OAuth2 (e.g. ORCID), dtool opens the dserver web interface in your
    browser and shows a short code. Sign in there; the web interface asks you
@@ -39,11 +40,16 @@ Getting started
    add ``--no-browser`` and open the printed link on any other device. With
    LDAP, enter your username and password instead.
 
-3. Use ``dserver://`` URIs with any dtool command::
+3. Use ``dserver://`` URIs with the same address with any dtool command::
 
+       dtool ls dserver://dserver.example.com/
        dtool ls dserver://dserver.example.com/s3/my-bucket
        dtool cp ./my-dataset dserver://dserver.example.com/s3/my-bucket
        dtool cp dserver://dserver.example.com/s3/my-bucket/<uuid> ./downloads
+
+   The first lists all datasets you have access to, with their URIs. The web
+   interface shows these URIs and ``dtool cp`` commands for each dataset
+   (*Copy*).
 
 You need no credentials for the storage (S3, Azure) itself: dserver hands out
 signed URLs. What you can list and download (search permission) and upload
@@ -68,10 +74,13 @@ broker alone, without command line, is ``pip install dtool-dserver``.
 URI Format
 ----------
 
-The URI format encodes both the dserver endpoint and the backend storage
-location::
+The URI format encodes both the dserver and the backend storage location::
 
     dserver://<server>/<backend>/<bucket_or_container>/<uuid>
+
+``<server>`` is the host (and port) you logged in to: the dserver itself or
+its web interface. ``dserver://<server>/`` stands for all storage locations
+you can search, for ``dtool ls``.
 
 Examples:
 
@@ -100,6 +109,12 @@ Log in once per dserver; the token is stored in the dtool config file
 (readable only by you) and used for all ``dserver://<server>/...`` URIs::
 
     dtool dserver login dserver.example.com
+
+``<server>`` can be the address of the dserver web interface, including a
+URL copied from the browser (e.g. ``https://dserver.example.com/``), or of
+the dserver API itself; use the same host in ``dserver://`` URIs. With the
+address of the web interface, dtool looks up the dserver API it uses and
+remembers it.
 
 How you log in depends on the dserver:
 
@@ -136,7 +151,10 @@ For administrators. ``dtool dserver login`` needs on the server side:
   ``OAUTH2_FRONTEND_URL``) must point to the web interface, where users
   approve logins.
 - **The web interface**: a dtool-lookup-webapp version with the login
-  approval dialog (newer than 0.4.0). Point it to the plugin's endpoints
+  approval dialog (newer than 0.4.0). Versions that name their dserver in
+  the page (``<meta name="dserver-url">``, from
+  ``VUE_APP_DTOOL_LOOKUP_SERVER_URL``) let users log in with the address of
+  the web interface. Point it to the plugin's endpoints
   under ``/auth/oauth2`` with ``VUE_APP_OAUTH2_LOGIN_URL`` (``.../login``),
   ``VUE_APP_DTOOL_LOOKUP_SERVER_TOKEN_GENERATOR_URL`` (``.../token``) and
   ``VUE_APP_DTOOL_LOOKUP_SERVER_AUTH_LOGOUT_URL`` (``.../logout``); the device
@@ -181,6 +199,12 @@ the dtool config file) until you log in with ``https://`` or log out. Your
 password and token are then sent unencrypted, so do this only for a dserver
 you trust on a network you trust. ``DSERVER_PROTOCOL`` sets the protocol for
 all dservers.
+
+dserver API address: ``DSERVER_URL_<host[:port]>`` is the base URL of the
+dserver API that ``dserver://<host[:port]>/...`` URIs go to, e.g.
+``https://example.org/dserver``. ``dtool dserver login`` stores it when you
+log in with the address of the web interface. It takes precedence over
+``DSERVER_PROTOCOL_<host[:port]>``.
 
 Download cache: downloaded items are cached in ``dtool-dserver-cache`` in the
 system's temporary directory; set ``DSERVER_CACHE_DIR`` (environment or dtool

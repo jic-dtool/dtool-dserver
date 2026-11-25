@@ -1,6 +1,21 @@
 Changelog
 =========
 
+Unreleased
+----------
+
+* Log in with the address of the dserver web interface, as copied from the
+  browser: ``dtool dserver login https://dtool.example.org``. dtool finds the
+  dserver API the web interface uses (dtool-lookup-webapp names it in its
+  page) and remembers it (``DSERVER_URL_<host[:port]>`` in the dtool config
+  file), so ``dserver://dtool.example.org/...`` URIs work as well. This also
+  supports dservers whose API is served under a path.
+* ``dtool ls dserver://<server>/`` lists the datasets of all storage
+  locations you can search. Copying to ``dserver://<server>/`` fails with
+  the storage locations to choose from.
+* Clearer errors: a rejected token asks to log in again, missing permissions
+  are reported as such, and listing reports errors like all other commands.
+
 0.1.0 (2026-11-24)
 ------------------
 

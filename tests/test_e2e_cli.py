@@ -223,6 +223,9 @@ def copy_round_trip(env, local_dataset, download_dir):
                        E2E_BASE_URI).stdout.strip().splitlines()[-1]
     assert remote_uri == f"{E2E_BASE_URI}/{local_dataset.uuid}"
     assert remote_uri in dtool(env, "ls", E2E_BASE_URI).stdout
+    # All storage locations of the server.
+    server = E2E_BASE_URI[len("dserver://"):].split("/", 1)[0]
+    assert remote_uri in dtool(env, "ls", f"dserver://{server}/").stdout
     assert_same_dataset(env, remote_uri, local_dataset.uri)
 
     download_dir.mkdir()

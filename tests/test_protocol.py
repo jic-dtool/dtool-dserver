@@ -118,11 +118,11 @@ def test_listing_uses_same_default(monkeypatch):
         def json(self):
             return []
 
-    def fake_post(url, **kwargs):
+    def fake_post(method, url, **kwargs):
         requested.append(url)
         return Response()
 
-    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(requests, "request", fake_post)
 
     DServerStorageBroker.list_dataset_uris(
         "dserver://dserver.example.org/s3/bucket")

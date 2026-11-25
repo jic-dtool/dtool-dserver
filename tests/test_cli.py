@@ -208,3 +208,164 @@ def test_logout_forgets_protocol(config_path, monkeypatch):  # NOQA
     result = _invoke("logout", SERVER)
     assert result.exit_code == 0, result.output
     assert _config(config_path) == {}
+
+
+# --- logging in with the address of the web interface ------------------------
+
+WEBAPP = "dtool.example.org"
+API = "https://api.example.org/dserver"
+
+
+class FakePage:
+    """A web page, e.g. the index.html of dtool-lookup-webapp."""
+
+    def __init__(self, url, html, status_code=200):
+        self.url = url
+        self.text = html
+        self.status_code = status_code
+        self.headers = {"Content-Type": "text/html; charset=utf-8"}
+
+    def json(self):
+        raise ValueError("not JSON")
+
+
+def webapp_html(dserver_url):
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8">'
+            f'<meta name="dserver-url" content="{dserver_url}">'
+            '<title>dtool</title></head><body><div id="app"></div>'
+            '</body></html>')
+
+
+@pytest.fixture
+def web(monkeypatch):
+    """A web interface at WEBAPP whose dserver API is API.
+
+    Like the Vue development server or nginx with a history fallback, the
+    web server answers every path with the page (or 404).
+    """
+    api = FakeServer(monkeypatch, url=API)
+    api.route("GET", "/me", lambda kwargs: FakeResponse(200, {
+        "username": auth.token_claims(
+            kwargs["headers"]["Authorization"][len("Bearer "):])["sub"]}))
+    _ldap_routes(api, make_token("bob"))
+    api_request = api.request
+    pages = {}
+
+    def request(method, url, **kwargs):
+        if url.startswith(API):
+            return api_request(method, url, **kwargs)
+        for prefix, page in pages.items():
+            if url.startswith(prefix):
+                return page(url)
+        raise requests.exceptions.ConnectionError(f"no server at {url}")
+
+    import requests
+    monkeypatch.setattr(requests, "request", request)
+    monkeypatch.setattr(auth.time, "sleep", lambda s: None)
+    pages[f"https://{WEBAPP}"] = lambda url: FakePage(url, webapp_html(API))
+    return pages
+
+
+def test_login_with_web_interface_address(config_path, web):  # NOQA
+    """The address of the web interface, copied from the browser, works for
+    logging in and in dserver:// URIs."""
+    result = _invoke("login", f"https://{WEBAPP}/search?q=x#top",
+                     "--method", "ldap", "--username", "bob",
+                     input="secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"web interface of the dserver at {API}" in result.output
+    assert f"Logged in to {WEBAPP} as bob" in result.output
+    config = _config(config_path)
+    assert auth.token_claims(config[auth.token_key(WEBAPP)])["sub"] == "bob"
+    assert config[f"DSERVER_URL_{WEBAPP}"] == API
+
+    from dtool_dserver.connection import server_url
+    assert server_url(WEBAPP) == API
+    assert f"{WEBAPP} (dserver at {API}): bob" in _invoke("status").output
+
+    result = _invoke("logout", WEBAPP)
+    assert result.exit_code == 0
+    assert _config(config_path) == {}
+
+
+def test_login_with_web_interface_host_only(config_path, web):  # NOQA
+    result = _invoke("login", WEBAPP, "--method", "ldap",
+                     "--username", "bob", input="secret\n")
+    assert result.exit_code == 0, result.output
+    assert _config(config_path)[f"DSERVER_URL_{WEBAPP}"] == API
+
+
+def test_web_interface_with_relative_dserver_url(config_path, web,  # NOQA
+                                                 monkeypatch):
+    """The web interface may name its dserver relative to itself, e.g. when
+    a reverse proxy serves the API under a path of the same host."""
+    web[f"https://{WEBAPP}"] = lambda url: FakePage(
+        url, webapp_html("../dserver"))
+    monkeypatch.setattr(
+        auth, "is_dserver", lambda url: url == f"https://{WEBAPP}/dserver")
+
+    assert auth.find_dserver(f"https://{WEBAPP}/app/") == \
+        f"https://{WEBAPP}/dserver"
+
+
+def test_login_to_dserver_api_stores_no_url(config_path, monkeypatch):  # NOQA
+    """Logging in to the dserver API itself needs no mapping."""
+    server = FakeServer(monkeypatch)
+    _ldap_routes(server, make_token("bob"))
+    with open(config_path, "w") as fh:
+        json.dump({f"DSERVER_URL_{SERVER}": "https://stale.example.org"}, fh)
+
+    result = _invoke("login", SERVER, "--method", "ldap",
+                     "--username", "bob", input="secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert "web interface" not in result.output
+    assert f"DSERVER_URL_{SERVER}" not in _config(config_path)
+
+
+def test_login_to_web_page_without_dserver_fails(config_path, web):  # NOQA
+    web[f"https://{WEBAPP}"] = lambda url: FakePage(
+        url, "<html><head><title>Some page</title></head></html>")
+
+    result = _invoke("login", WEBAPP)
+
+    assert result.exit_code != 0
+    assert "neither a dserver nor a dserver web interface" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_web_interface_naming_missing_dserver_fails(config_path, web):  # NOQA
+    web[f"https://{WEBAPP}"] = lambda url: FakePage(
+        url, webapp_html("https://gone.example.org"))
+
+    result = _invoke("login", WEBAPP)
+
+    assert result.exit_code != 0
+    assert "no dserver at https://gone.example.org" in result.output
+
+
+def test_web_interface_pointing_to_plain_http_warns(config_path, web,  # NOQA
+                                                    monkeypatch):
+    monkeypatch.setattr(auth, "find_dserver",
+                        lambda url: "http://api.example.org")
+
+    result = _invoke("login", WEBAPP, "--method", "ldap", input="bob\nx\n")
+
+    assert "api.example.org is contacted over plain http" in result.output
+
+
+def test_deep_link_of_web_interface(config_path, web):  # NOQA
+    """A page that does not exist (no history fallback) falls back to the
+    root page of the web interface."""
+    web[f"https://{WEBAPP}"] = lambda url: FakePage(
+        url, webapp_html(API) if url == f"https://{WEBAPP}/"
+        else "Cannot GET", 200 if url == f"https://{WEBAPP}/" else 404)
+
+    assert auth.find_dserver(f"https://{WEBAPP}/datasets/x") == API
+
+
+def test_unreachable_server_reports_connection_error(config_path, web):  # NOQA
+    result = _invoke("login", "https://nothing.example.org")
+    assert result.exit_code != 0
+    assert "Connection error" in result.output
