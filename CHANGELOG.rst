@@ -1,26 +1,46 @@
 Changelog
 =========
 
-Unreleased
-----------
+0.2.0 (2026-11-26)
+------------------
 
-* Log in with the address of the dserver web interface, as copied from the
-  browser: ``dtool dserver login https://dtool.example.org``. dtool finds the
-  dserver the web interface uses (dtool-lookup-webapp names it in its page)
-  and logs in there. The login is stored for the dserver, and the web
-  interface's host stands for it: ``dserver://`` URIs with either host work.
-  dtool asks before logging in if the dserver is on another host than the
-  web interface, the page redirected to another host, or it was fetched over
-  plain http (except on localhost); ``--yes`` skips the question. Only an
-  explicit login does this, never a ``dserver://`` URI.
-* dservers served under a path (e.g. ``https://example.org/dserver``):
-  ``dserver://example.org/...`` URIs go there after logging in
-  (``DSERVER_URL_<host[:port]>`` in the dtool config file).
+Use the address of the dserver web interface, as copied from the browser,
+for logging in and in ``dserver://`` URIs.
+
+Command line
+
+* ``dtool dserver login`` accepts the address of the web interface, e.g.
+  ``dtool dserver login https://dtool.example.org``. dtool reads the dserver
+  the web interface uses from its page (dtool-lookup-webapp names it there)
+  and logs in to that dserver.
+* The login is stored for the dserver, and the web interface's host stands
+  for it: ``dserver://`` URIs with either host work. ``dtool dserver status``
+  lists these aliases; logging out of either logs out of the dserver.
 * ``dtool ls dserver://<server>/`` lists the datasets of all storage
   locations you can search. Copying to ``dserver://<server>/`` fails with
   the storage locations to choose from.
+
+Security
+
+* The web interface's page decides where your password or token goes, so
+  dtool asks before logging in if the dserver is on another host than the
+  web interface, the page redirected to another host, or it was fetched over
+  plain http (except on localhost). ``--yes`` skips the question.
+* Only an explicit ``dtool dserver login`` makes a web interface's host
+  stand for a dserver: a ``dserver://`` URI never makes dtool look one up.
+
+Configuration
+
+* dservers served under a path (e.g. ``https://example.org/dserver``) work:
+  ``DSERVER_URL_<host[:port]>`` in the dtool config file, stored by
+  ``dtool dserver login``, is the dserver's address for
+  ``dserver://<host[:port]>/...`` URIs.
+
+Fixes
+
 * Clearer errors: a rejected token asks to log in again, missing permissions
-  are reported as such, and listing reports errors like all other commands.
+  are reported as such, and listing reports errors like all other
+  operations (no raw HTTP errors).
 
 0.1.0 (2026-11-24)
 ------------------
