@@ -6,10 +6,13 @@ Unreleased
 
 * Log in with the address of the dserver web interface, as copied from the
   browser: ``dtool dserver login https://dtool.example.org``. dtool finds the
-  dserver API the web interface uses (dtool-lookup-webapp names it in its
-  page) and remembers it (``DSERVER_URL_<host[:port]>`` in the dtool config
-  file), so ``dserver://dtool.example.org/...`` URIs work as well. This also
-  supports dservers whose API is served under a path.
+  dserver the web interface uses (dtool-lookup-webapp names it in its page)
+  and logs in there; the login is stored for the dserver, whose
+  ``dserver://`` URIs the web interface shows. ``dtool dserver login`` prints
+  the host to use in ``dserver://`` URIs.
+* dservers served under a path (e.g. ``https://example.org/dserver``):
+  ``dserver://example.org/...`` URIs go there after logging in
+  (``DSERVER_URL_<host[:port]>`` in the dtool config file).
 * ``dtool ls dserver://<server>/`` lists the datasets of all storage
   locations you can search. Copying to ``dserver://<server>/`` fails with
   the storage locations to choose from.

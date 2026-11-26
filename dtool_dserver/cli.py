@@ -59,8 +59,9 @@ def login(server, method, username, no_browser):
     """Log in to SERVER and store the token.
 
     SERVER is the address of the dserver or of its web interface, e.g.
-    dserver.example.com or https://dserver.example.com (copied from the
-    browser). Then use dserver://SERVER/... URIs.
+    dserver.example.com or https://dtool.example.com (copied from the
+    browser). Then use dserver://<dserver host>/... URIs, as the web
+    interface shows them.
 
     With OAuth2 (e.g. ORCID), approve the login in a web browser, on this or
     any other machine. With LDAP, enter username and password.
@@ -76,9 +77,12 @@ def login(server, method, username, no_browser):
         if base_url != url:
             click.echo(f"{url} is the web interface of the dserver at "
                        f"{base_url}.")
-        api_host = urlsplit(base_url).netloc
-        if base_url.startswith("http://") and not is_loopback(api_host):
-            click.echo(f"Warning: {api_host} is contacted over plain http; "
+        # The token is for the dserver, whatever address was given, so that
+        # the URIs shown by the web interface work.
+        api = urlsplit(base_url)
+        server = api.netloc
+        if api.scheme == "http" and not is_loopback(server):
+            click.echo(f"Warning: {server} is contacted over plain http; "
                        f"your password or token is sent unencrypted.",
                        err=True)
         if method == "auto":
@@ -110,16 +114,17 @@ def login(server, method, username, no_browser):
         raise click.ClickException(str(e))
 
     auth.store_token(server, token)
-    if base_url == f"{protocol or get_protocol(server)}://{server}":
+    if base_url == f"{api.scheme}://{server}":
         auth.remove_url(server)
-        if protocol is not None:
-            auth.store_protocol(server, protocol)
+        auth.store_protocol(server, api.scheme)
     else:
-        # dserver://SERVER/... URIs go to the dserver API at base_url.
+        # The API is served under a path: dserver://SERVER/... URIs go to
+        # base_url.
         auth.store_url(server, base_url)
         auth.remove_protocol(server)
     click.echo(f"Logged in to {server} as {user.get('username')} "
-               f"({_expiry(token)}).")
+               f"({_expiry(token)}).\nUse dserver://{server}/... URIs, e.g. "
+               f"'dtool ls dserver://{server}/'.")
 
 
 @dserver.command()

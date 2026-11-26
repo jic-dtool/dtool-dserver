@@ -3,6 +3,7 @@
 import json
 
 import pytest
+import requests
 from click.testing import CliRunner
 
 from dtool_dserver import auth
@@ -129,7 +130,6 @@ def test_status_without_logins(config_path, server):  # NOQA
     assert "Not logged in" in result.output
 
 
-
 def _ldap_routes(server, token):
     server.route("POST", "/auth/ldap/token",
                  FakeResponse(200, {"token": token}))
@@ -213,7 +213,8 @@ def test_logout_forgets_protocol(config_path, monkeypatch):  # NOQA
 # --- logging in with the address of the web interface ------------------------
 
 WEBAPP = "dtool.example.org"
-API = "https://api.example.org/dserver"
+API_HOST = "api.example.org"
+API = f"https://{API_HOST}/dserver"
 
 
 class FakePage:
@@ -259,7 +260,6 @@ def web(monkeypatch):
                 return page(url)
         raise requests.exceptions.ConnectionError(f"no server at {url}")
 
-    import requests
     monkeypatch.setattr(requests, "request", request)
     monkeypatch.setattr(auth.time, "sleep", lambda s: None)
     pages[f"https://{WEBAPP}"] = lambda url: FakePage(url, webapp_html(API))
@@ -268,32 +268,58 @@ def web(monkeypatch):
 
 def test_login_with_web_interface_address(config_path, web):  # NOQA
     """The address of the web interface, copied from the browser, works for
-    logging in and in dserver:// URIs."""
+    logging in. The token is stored for the dserver, whose URIs the web
+    interface shows; its API is served under a path here."""
     result = _invoke("login", f"https://{WEBAPP}/search?q=x#top",
                      "--method", "ldap", "--username", "bob",
                      input="secret\n")
 
     assert result.exit_code == 0, result.output
     assert f"web interface of the dserver at {API}" in result.output
-    assert f"Logged in to {WEBAPP} as bob" in result.output
+    assert f"Logged in to {API_HOST} as bob" in result.output
+    assert f"dtool ls dserver://{API_HOST}/" in result.output
     config = _config(config_path)
-    assert auth.token_claims(config[auth.token_key(WEBAPP)])["sub"] == "bob"
-    assert config[f"DSERVER_URL_{WEBAPP}"] == API
+    assert auth.token_claims(
+        config[auth.token_key(API_HOST)])["sub"] == "bob"
+    assert config[f"DSERVER_URL_{API_HOST}"] == API
+    assert auth.token_key(WEBAPP) not in config
 
     from dtool_dserver.connection import server_url
-    assert server_url(WEBAPP) == API
-    assert f"{WEBAPP} (dserver at {API}): bob" in _invoke("status").output
+    assert server_url(API_HOST) == API
+    assert f"{API_HOST} (dserver at {API}): bob" in _invoke("status").output
 
-    result = _invoke("logout", WEBAPP)
+    result = _invoke("logout", API_HOST)
     assert result.exit_code == 0
     assert _config(config_path) == {}
+
+
+def test_login_with_web_interface_of_dserver_at_root(config_path,  # NOQA
+                                                     monkeypatch):
+    """An API at the root of its host needs no stored URL."""
+    api = FakeServer(monkeypatch, url="http://localhost:5000")
+    _ldap_routes(api, make_token("bob"))
+    api_request = api.request
+
+    def request(method, url, **kwargs):
+        if url.startswith("http://localhost:8080"):
+            return FakePage(url, webapp_html("http://localhost:5000"))
+        return api_request(method, url, **kwargs)
+
+    monkeypatch.setattr(requests, "request", request)
+
+    result = _invoke("login", "http://localhost:8080/", "--method", "ldap",
+                     "--username", "bob", input="secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Logged in to localhost:5000 as bob" in result.output
+    assert set(_config(config_path)) == {auth.token_key("localhost:5000")}
 
 
 def test_login_with_web_interface_host_only(config_path, web):  # NOQA
     result = _invoke("login", WEBAPP, "--method", "ldap",
                      "--username", "bob", input="secret\n")
     assert result.exit_code == 0, result.output
-    assert _config(config_path)[f"DSERVER_URL_{WEBAPP}"] == API
+    assert _config(config_path)[f"DSERVER_URL_{API_HOST}"] == API
 
 
 def test_web_interface_with_relative_dserver_url(config_path, web,  # NOQA
