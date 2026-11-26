@@ -71,18 +71,54 @@ def token_claims(token):
 
 # --- lookup and storage ------------------------------------------------------
 
+def alias_target(server, config_path=None):
+    """Return the dserver host that a server name stands for, or None.
+
+    A web interface's host stands for the dserver it uses, as stored by
+    ``dtool dserver login`` (DSERVER_URL_<web interface host>).
+    """
+    url = get_config_value(url_key(server), config_path=config_path)
+    if not url:
+        return None
+    host = urlsplit(url).netloc
+    return host if host and host != server else None
+
+
+def aliases(server, config_path=None):
+    """Return the server names stored as standing for a dserver host."""
+    config = _read_config(_config_path(config_path))
+    prefix = url_key("")
+    return sorted(
+        key[len(prefix):] for key, url in config.items()
+        if key.startswith(prefix) and key[len(prefix):] != server
+        and isinstance(url, str) and urlsplit(url).netloc == server)
+
+
+def _stored_or_env_token(server, config_path):
+    token = os.environ.get(token_key(server))
+    if token:
+        return token
+    token = get_config_value_from_file(token_key(server),
+                                       config_path=config_path)
+    if token:
+        return refresh_if_expiring(server, token, config_path=config_path)
+    return None
+
+
 def lookup_token(server, config_path=None):
     """Return the token for a server; see module documentation."""
     config_path = _config_path(config_path)
-    key = token_key(server)
 
-    token = os.environ.get(key)
+    token = _stored_or_env_token(server, config_path)
     if token:
         return token
 
-    token = get_config_value_from_file(key, config_path=config_path)
-    if token:
-        return refresh_if_expiring(server, token, config_path=config_path)
+    # The host of a web interface: the token of its dserver.
+    target = alias_target(server, config_path=config_path)
+    if target:
+        token = _stored_or_env_token(target, config_path)
+        if token:
+            return token
 
     token = get_config_value("DSERVER_TOKEN", config_path=config_path)
     if token:
@@ -273,39 +309,43 @@ class _DServerMetaParser(HTMLParser):
 
 
 def _named_dserver(page_url):
-    """Return the dserver URL a web page names, or None."""
+    """Return the dserver URL a web page names and the page's final URL
+    (after redirects), or (None, None)."""
     try:
         response = requests.request("GET", page_url, timeout=TIMEOUT)
     except requests.exceptions.RequestException:
-        return None
+        return None, None
     if response.status_code != 200 or \
             "html" not in response.headers.get("Content-Type", ""):
-        return None
+        return None, None
     parser = _DServerMetaParser()
     parser.feed(response.text)
     if not parser.url:
-        return None
-    return urljoin(response.url or page_url, parser.url).rstrip("/")
+        return None, None
+    final_url = getattr(response, "url", None) or page_url
+    return urljoin(final_url, parser.url).rstrip("/"), final_url
 
 
-def find_dserver(url):
-    """Return the base URL of the dserver API at url.
+def locate_dserver(url):
+    """Return the base URL of the dserver API at url, and the URL of the
+    web page that named it (None if url is the dserver itself).
 
     url is either the dserver API itself, or (any page of) the web
     interface (dtool-lookup-webapp), whose page names its dserver in
-    ``<meta name="dserver-url" content="...">``.
+    ``<meta name="dserver-url" content="...">``. Whoever serves that page
+    decides where credentials go: see confirmation_reason().
     """
     url = url.rstrip("/")
     if is_dserver(url):
-        return url
+        return url, None
     parts = urlsplit(url)
     root = f"{parts.scheme}://{parts.netloc}"
     for page_url in dict.fromkeys([url, f"{root}/"]):
-        api_url = _named_dserver(page_url)
+        api_url, final_url = _named_dserver(page_url)
         if api_url is None:
             continue
         if is_dserver(api_url):
-            return api_url
+            return api_url, final_url
         raise DServerStorageBrokerError(
             f"The web interface at {url} names {api_url} as its dserver, "
             f"but there is no dserver at {api_url}.")
@@ -313,6 +353,35 @@ def find_dserver(url):
     _request("GET", url)
     raise DServerStorageBrokerError(
         f"{url} is neither a dserver nor a dserver web interface.")
+
+
+def find_dserver(url):
+    """Return the base URL of the dserver API at url; see locate_dserver."""
+    return locate_dserver(url)[0]
+
+
+def confirmation_reason(given_url, page_url, api_url):
+    """Return why logging in to a dserver named by a web page needs the
+    user's confirmation, or None.
+
+    The page decides where the password or token goes. That is no more
+    trust than in the web interface itself, which holds the user's token,
+    as long as the page comes unaltered from the host the user gave, and
+    names a dserver on the same host.
+    """
+    given = urlsplit(given_url)
+    page = urlsplit(page_url)
+    api = urlsplit(api_url)
+    if page.scheme != "https" and not is_loopback(page.netloc):
+        return (f"The page {page_url} was fetched without encryption "
+                f"(http) and may have been altered on the way.")
+    if page.hostname != given.hostname:
+        return (f"{given_url} redirected to {page_url}, a different "
+                f"host.")
+    if api.hostname != page.hostname:
+        return (f"The dserver {api_url} is on a different host than the "
+                f"web interface.")
+    return None
 
 
 def available_methods(base_url):
@@ -407,7 +476,11 @@ __all__ = [
     "device_login",
     "ldap_login",
     "lookup_token",
+    "alias_target",
+    "aliases",
+    "confirmation_reason",
     "find_dserver",
+    "locate_dserver",
     "is_dserver",
     "refresh_if_expiring",
     "remove_token",

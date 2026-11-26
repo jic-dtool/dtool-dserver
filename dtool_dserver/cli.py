@@ -55,13 +55,20 @@ def dserver():
 @click.option("--username", help="Username (LDAP login).")
 @click.option("--no-browser", is_flag=True,
               help="Do not open a web browser (OAuth2 login).")
-def login(server, method, username, no_browser):
+@click.option("--yes", "-y", is_flag=True,
+              help="Log in to the dserver a web interface names without "
+                   "asking.")
+def login(server, method, username, no_browser, yes):
     """Log in to SERVER and store the token.
 
     SERVER is the address of the dserver or of its web interface, e.g.
     dserver.example.com or https://dtool.example.com (copied from the
-    browser). Then use dserver://<dserver host>/... URIs, as the web
-    interface shows them.
+    browser). Then use dserver://SERVER/... URIs, as the web interface
+    shows them; the host of the dserver works as well.
+
+    The page of a web interface names its dserver. If that dserver is on
+    another host, or the page was fetched over plain http, dtool asks
+    before logging in (--yes to skip).
 
     With OAuth2 (e.g. ORCID), approve the login in a web browser, on this or
     any other machine. With LDAP, enter username and password.
@@ -71,14 +78,19 @@ def login(server, method, username, no_browser):
     use http for it.
     """
     server, protocol, path = _server(server)
+    given = server
     url = f"{protocol or get_protocol(server)}://{server}{path}"
     try:
-        base_url = auth.find_dserver(url)
-        if base_url != url:
+        base_url, page_url = auth.locate_dserver(url)
+        if page_url is not None:
             click.echo(f"{url} is the web interface of the dserver at "
                        f"{base_url}.")
-        # The token is for the dserver, whatever address was given, so that
-        # the URIs shown by the web interface work.
+            reason = auth.confirmation_reason(url, page_url, base_url)
+            if reason and not yes:
+                click.echo(reason)
+                click.confirm(f"Log in to {base_url}?", abort=True)
+        # The token is stored for the dserver, whatever address was given;
+        # the web interface's host stands for it (alias).
         api = urlsplit(base_url)
         server = api.netloc
         if api.scheme == "http" and not is_loopback(server):
@@ -122,9 +134,16 @@ def login(server, method, username, no_browser):
         # base_url.
         auth.store_url(server, base_url)
         auth.remove_protocol(server)
+    if given != server:
+        # dserver://<web interface host>/... URIs go to the dserver as well.
+        auth.remove_token(given)
+        auth.remove_protocol(given)
+        auth.store_url(given, base_url)
     click.echo(f"Logged in to {server} as {user.get('username')} "
-               f"({_expiry(token)}).\nUse dserver://{server}/... URIs, e.g. "
-               f"'dtool ls dserver://{server}/'.")
+               f"({_expiry(token)}).")
+    if given != server:
+        click.echo(f"dserver://{given}/... and dserver://{server}/... URIs "
+                   f"both work, e.g. 'dtool ls dserver://{given}/'.")
 
 
 @dserver.command()
@@ -132,9 +151,13 @@ def login(server, method, username, no_browser):
 def logout(server):
     """Remove the stored token of SERVER."""
     server, _, _ = _server(server)
-    auth.remove_protocol(server)
-    auth.remove_url(server)
-    if auth.remove_token(server):
+    target = auth.alias_target(server)
+    removed = False
+    for name in filter(None, [server, target]):
+        auth.remove_protocol(name)
+        auth.remove_url(name)
+        removed = auth.remove_token(name) or removed
+    if removed:
         click.echo(f"Logged out of {server}.")
     else:
         click.echo(f"Not logged in to {server}.")
@@ -157,4 +180,7 @@ def status():
             name = f"{server} (http)"
         else:
             name = server
+        also = auth.aliases(server)
+        if also:
+            name += f" [also as {', '.join(also)}]"
         click.echo(f"{name}: {user}, {_expiry(token)}")

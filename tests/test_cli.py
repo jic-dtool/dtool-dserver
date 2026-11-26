@@ -268,28 +268,37 @@ def web(monkeypatch):
 
 def test_login_with_web_interface_address(config_path, web):  # NOQA
     """The address of the web interface, copied from the browser, works for
-    logging in. The token is stored for the dserver, whose URIs the web
-    interface shows; its API is served under a path here."""
+    logging in. The token is stored for the dserver (its API is served
+    under a path here); dserver:// URIs with the host of either work."""
     result = _invoke("login", f"https://{WEBAPP}/search?q=x#top",
                      "--method", "ldap", "--username", "bob",
-                     input="secret\n")
+                     input="y\nsecret\n")
 
     assert result.exit_code == 0, result.output
     assert f"web interface of the dserver at {API}" in result.output
+    # The dserver is on another host than the web interface: confirm.
+    assert "on a different host than the web interface" in result.output
+    assert f"Log in to {API}? [y/N]" in result.output
     assert f"Logged in to {API_HOST} as bob" in result.output
-    assert f"dtool ls dserver://{API_HOST}/" in result.output
+    assert f"dtool ls dserver://{WEBAPP}/" in result.output
     config = _config(config_path)
     assert auth.token_claims(
         config[auth.token_key(API_HOST)])["sub"] == "bob"
     assert config[f"DSERVER_URL_{API_HOST}"] == API
+    assert config[f"DSERVER_URL_{WEBAPP}"] == API
     assert auth.token_key(WEBAPP) not in config
 
     from dtool_dserver.connection import server_url
-    assert server_url(API_HOST) == API
-    assert f"{API_HOST} (dserver at {API}): bob" in _invoke("status").output
+    for name in (WEBAPP, API_HOST):
+        assert server_url(name) == API
+        assert auth.token_claims(auth.lookup_token(name))["sub"] == "bob"
+    assert f"{API_HOST} (dserver at {API}) [also as {WEBAPP}]: bob" in \
+        _invoke("status").output
 
-    result = _invoke("logout", API_HOST)
+    # Logging out of the web interface logs out of its dserver.
+    result = _invoke("logout", WEBAPP)
     assert result.exit_code == 0
+    assert f"Logged out of {WEBAPP}" in result.output
     assert _config(config_path) == {}
 
 
@@ -312,13 +321,43 @@ def test_login_with_web_interface_of_dserver_at_root(config_path,  # NOQA
 
     assert result.exit_code == 0, result.output
     assert "Logged in to localhost:5000 as bob" in result.output
-    assert set(_config(config_path)) == {auth.token_key("localhost:5000")}
+    assert _config(config_path).keys() == {
+        auth.token_key("localhost:5000"), "DSERVER_URL_localhost:8080"}
+    assert auth.lookup_token("localhost:8080") == \
+        auth.lookup_token("localhost:5000")
+
+
+def test_declined_login_through_web_interface(config_path, web):  # NOQA
+    result = _invoke("login", WEBAPP, "--method", "ldap",
+                     "--username", "bob", input="n\n")
+
+    assert result.exit_code != 0
+    assert "Aborted" in result.output
+    assert "Password" not in result.output
+    import os
+    assert not os.path.exists(config_path)
+
+
+def test_no_discovery_when_using_uris(config_path, web):  # NOQA
+    """Only an explicit login makes a web interface's host stand for its
+    dserver. A dserver:// URI naming some host must not make dtool look up
+    (and trust) a dserver named by that host's page."""
+    token = make_token("bob")
+    with open(config_path, "w") as fh:
+        json.dump({auth.token_key(API_HOST): token,
+                   f"DSERVER_URL_{API_HOST}": API}, fh)
+
+    with pytest.raises(auth.DServerAuthenticationError,
+                       match=f"Not logged in to dserver {WEBAPP}"):
+        auth.lookup_token(WEBAPP)
+    assert f"DSERVER_URL_{WEBAPP}" not in _config(config_path)
 
 
 def test_login_with_web_interface_host_only(config_path, web):  # NOQA
-    result = _invoke("login", WEBAPP, "--method", "ldap",
+    result = _invoke("login", WEBAPP, "--method", "ldap", "--yes",
                      "--username", "bob", input="secret\n")
     assert result.exit_code == 0, result.output
+    assert "[y/N]" not in result.output
     assert _config(config_path)[f"DSERVER_URL_{API_HOST}"] == API
 
 
@@ -373,10 +412,11 @@ def test_web_interface_naming_missing_dserver_fails(config_path, web):  # NOQA
 
 def test_web_interface_pointing_to_plain_http_warns(config_path, web,  # NOQA
                                                     monkeypatch):
-    monkeypatch.setattr(auth, "find_dserver",
-                        lambda url: "http://api.example.org")
+    monkeypatch.setattr(auth, "locate_dserver", lambda url: (
+        "http://api.example.org", f"https://{WEBAPP}"))
 
-    result = _invoke("login", WEBAPP, "--method", "ldap", input="bob\nx\n")
+    result = _invoke("login", WEBAPP, "--method", "ldap",
+                     input="y\nbob\nx\n")
 
     assert "api.example.org is contacted over plain http" in result.output
 
@@ -395,3 +435,30 @@ def test_unreachable_server_reports_connection_error(config_path, web):  # NOQA
     result = _invoke("login", "https://nothing.example.org")
     assert result.exit_code != 0
     assert "Connection error" in result.output
+
+
+@pytest.mark.parametrize("given, page, api, reason", [
+    # Same host, encrypted: the web interface's own dserver.
+    ("https://dtool.example.org", "https://dtool.example.org/",
+     "https://dtool.example.org/api", None),
+    ("https://example.org", "https://example.org/",
+     "https://example.org:5000", None),
+    # Local development: plain http on loopback is fine.
+    ("http://127.0.0.1:8080", "http://127.0.0.1:8080/",
+     "http://127.0.0.1:5000", None),
+    # The page may have been altered on the way.
+    ("http://lan-host:8080", "http://lan-host:8080/", "http://lan-host:5000",
+     "without encryption"),
+    # Redirected elsewhere.
+    ("https://dtool.example.org", "https://evil.example.com/",
+     "https://evil.example.com/api", "redirected"),
+    # dserver on another host.
+    ("https://dtool.example.org", "https://dtool.example.org/",
+     "https://api.example.org", "different host"),
+])
+def test_confirmation_reason(given, page, api, reason):
+    result = auth.confirmation_reason(given, page, api)
+    if reason is None:
+        assert result is None
+    else:
+        assert reason in result

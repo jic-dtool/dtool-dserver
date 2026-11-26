@@ -7,9 +7,12 @@ Unreleased
 * Log in with the address of the dserver web interface, as copied from the
   browser: ``dtool dserver login https://dtool.example.org``. dtool finds the
   dserver the web interface uses (dtool-lookup-webapp names it in its page)
-  and logs in there; the login is stored for the dserver, whose
-  ``dserver://`` URIs the web interface shows. ``dtool dserver login`` prints
-  the host to use in ``dserver://`` URIs.
+  and logs in there. The login is stored for the dserver, and the web
+  interface's host stands for it: ``dserver://`` URIs with either host work.
+  dtool asks before logging in if the dserver is on another host than the
+  web interface, the page redirected to another host, or it was fetched over
+  plain http (except on localhost); ``--yes`` skips the question. Only an
+  explicit login does this, never a ``dserver://`` URI.
 * dservers served under a path (e.g. ``https://example.org/dserver``):
   ``dserver://example.org/...`` URIs go there after logging in
   (``DSERVER_URL_<host[:port]>`` in the dtool config file).

@@ -41,14 +41,13 @@ Getting started
    add ``--no-browser`` and open the printed link on any other device. With
    LDAP, enter your username and password instead.
 
-3. Use ``dserver://`` URIs with any dtool command. They name the dserver,
-   which ``dtool dserver login`` prints and the web interface shows
-   (*Copy URI*), e.g. ``dserver.example.com``::
+3. Use ``dserver://`` URIs with the same address with any dtool command,
+   as the web interface shows them (*Copy URI*)::
 
-       dtool ls dserver://dserver.example.com/
-       dtool ls dserver://dserver.example.com/s3/my-bucket
-       dtool cp ./my-dataset dserver://dserver.example.com/s3/my-bucket
-       dtool cp dserver://dserver.example.com/s3/my-bucket/<uuid> ./downloads
+       dtool ls dserver://dtool.example.com/
+       dtool ls dserver://dtool.example.com/s3/my-bucket
+       dtool cp ./my-dataset dserver://dtool.example.com/s3/my-bucket
+       dtool cp dserver://dtool.example.com/s3/my-bucket/<uuid> ./downloads
 
    The first lists all datasets you have access to, with their URIs.
 
@@ -79,8 +78,9 @@ The URI format encodes both the dserver and the backend storage location::
 
     dserver://<server>/<backend>/<bucket_or_container>/<uuid>
 
-``<server>`` is the host (and port) of the dserver. ``dserver://<server>/``
-stands for all storage locations you can search, for ``dtool ls``.
+``<server>`` is the host (and port) of the dserver, or of its web interface
+if you logged in with that. ``dserver://<server>/`` stands for all storage
+locations you can search, for ``dtool ls``.
 
 Examples:
 
@@ -111,9 +111,17 @@ Log in once per dserver; the token is stored in the dtool config file
     dtool dserver login dserver.example.com
 
 The address can also be that of the dserver web interface, including a URL
-copied from the browser (e.g. ``https://dtool.example.com/``): dtool looks up
-the dserver the web interface uses and logs in there. Either way, dtool
-prints the dserver's host, which ``dserver://`` URIs name.
+copied from the browser (e.g. ``https://dtool.example.com/``): dtool reads
+the dserver the web interface uses from its page and logs in there. The
+login is stored for the dserver, and the web interface's host stands for it,
+so ``dserver://`` URIs with either host work.
+
+The web page decides where your password or token goes, so dtool asks
+before logging in if the dserver is on another host than the web interface,
+the page redirected to another host, or the page was fetched over plain
+http (except on localhost). ``--yes`` skips the question, e.g. in scripts.
+Only ``dtool dserver login`` makes such a connection: a ``dserver://`` URI
+with a host you did not log in to is never looked up this way.
 
 How you log in depends on the dserver:
 
@@ -202,8 +210,9 @@ all dservers.
 dserver under a path: ``DSERVER_URL_<host[:port]>`` is the base URL of the
 dserver API that ``dserver://<host[:port]>/...`` URIs go to, for a dserver
 served under a path, e.g. ``https://example.org/dserver``. ``dtool dserver
-login`` stores it when you log in to such a dserver. It takes precedence
-over ``DSERVER_PROTOCOL_<host[:port]>``.
+login`` stores it when you log in to such a dserver, and for the host of a
+web interface you log in with. It takes precedence over
+``DSERVER_PROTOCOL_<host[:port]>``.
 
 Download cache: downloaded items are cached in ``dtool-dserver-cache`` in the
 system's temporary directory; set ``DSERVER_CACHE_DIR`` (environment or dtool
