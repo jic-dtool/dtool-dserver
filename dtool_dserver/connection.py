@@ -59,6 +59,24 @@ def connection_error(url, error):
     return DServerStorageBrokerError(message)
 
 
-def server_url(server, config_path=None):
-    """Return the base URL (protocol://host[:port]) of a dserver."""
+def url_key(server):
+    """Return the config key of the API URL of a server (host[:port])."""
+    return f"DSERVER_URL_{server}"
+
+
+def default_url(server, config_path=None):
+    """Return protocol://host[:port] of a server, ignoring DSERVER_URL_."""
     return f"{get_protocol(server, config_path=config_path)}://{server}"
+
+
+def server_url(server, config_path=None):
+    """Return the base URL of the dserver API for a server (host[:port]).
+
+    This is DSERVER_URL_<host[:port]> (environment or dtool config file) if
+    set, as stored by ``dtool dserver login`` with the address of a dserver
+    web interface, whose API is elsewhere; otherwise protocol://host[:port].
+    """
+    url = get_config_value(url_key(server), config_path=config_path)
+    if url:
+        return url.rstrip("/")
+    return default_url(server, config_path=config_path)

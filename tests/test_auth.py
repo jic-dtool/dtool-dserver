@@ -50,6 +50,9 @@ class FakeServer:
         self.url = url
         self.routes = {}
         self.calls = []
+        # Every dserver answers its health check without authentication.
+        self.route("GET", "/config/health",
+                   FakeResponse(200, {"status": "healthy"}))
         monkeypatch.setattr(requests, "request", self.request)
 
     def route(self, method, path, *responses):

@@ -19,7 +19,7 @@ from dtoolcore.utils import (
 from .auth import lookup_token
 from .connection import (
     connection_error as _connection_error,
-    get_protocol as _get_protocol,
+    server_url as _server_url,
 )
 from .errors import (  # noqa: F401 (re-exported for backwards compatibility)
     DServerAuthenticationError,
@@ -79,6 +79,55 @@ Dataset tags metadata: $UUID/tags/
 """
 
 
+def _error_description(response, default):
+    """Return the error message of a dserver response."""
+    # Flask-smorest uses 'message', werkzeug uses 'description',
+    # flask-jwt-extended uses 'msg'
+    try:
+        data = response.json()
+        return (data.get('message') or data.get('description')
+                or data.get('msg') or default)
+    except (ValueError, AttributeError):
+        return default
+
+
+def _api_request(server, method, path, config_path=None, **kwargs):
+    """Make an authenticated request to the dserver API of a server."""
+    url = f"{_server_url(server, config_path=config_path)}{path}"
+    headers = kwargs.pop('headers', {})
+    headers['Authorization'] = \
+        f'Bearer {lookup_token(server, config_path=config_path)}'
+
+    try:
+        response = requests.request(method, url, headers=headers, **kwargs)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        description = _error_description(e.response, str(e))
+        if status_code == 401:
+            raise DServerAuthenticationError(
+                f"Authentication failed ({description}). Log in again with "
+                f"'dtool dserver login {server}'."
+            )
+        elif status_code == 403:
+            raise DServerAuthenticationError(
+                f"Access denied by dserver {server}: {description}"
+            )
+        elif status_code == 404:
+            raise DServerDatasetNotFoundError(
+                f"Dataset not found on dserver: {description}"
+            )
+        elif status_code == 501:
+            raise DServerNotImplementedError(
+                f"Operation not supported by dserver or storage backend: "
+                f"{description}"
+            )
+        raise DServerStorageBrokerError(f"API request failed: {e}")
+    except requests.exceptions.RequestException as e:
+        raise _connection_error(url, e)
+
+
 class DServerStorageBroker(BaseStorageBroker):
     """Storage broker that accesses datasets through dserver signed URLs.
 
@@ -90,6 +139,8 @@ class DServerStorageBroker(BaseStorageBroker):
     URI formats supported:
     - Dataset URI: dserver://<server>/<backend>/<bucket>/<uuid>
     - Base URI: dserver://<server>/<backend>/<bucket>
+    - Server URI: dserver://<server>/, for listing all datasets the user
+      can search
 
     Example:
     - dserver://localhost:5000/s3/my-bucket/550e8400-e29b-41d4-a716-446655440000
@@ -153,7 +204,13 @@ class DServerStorageBroker(BaseStorageBroker):
 
         path_parts = [p for p in parsed.path.strip('/').split('/') if p]
 
-        if len(path_parts) == 2:
+        if not path_parts:
+            # Server URI - dserver://server/, for listing only
+            self.uuid = None
+            self._backend_base_uri = None
+            self._backend_uri = None
+
+        elif len(path_parts) == 2:
             # Base URI - dserver://server/backend/bucket
             # This is valid for copy/list operations where the UUID is not yet known
             backend, bucket = path_parts
@@ -173,6 +230,7 @@ class DServerStorageBroker(BaseStorageBroker):
         else:
             raise ValueError(
                 f"Invalid dserver URI: {uri}. Expected "
+                f"dserver://{self._server}/, "
                 f"dserver://{self._server}/<backend>/<bucket> or "
                 f"dserver://{self._server}/<backend>/<bucket>/<uuid>"
             )
@@ -183,51 +241,13 @@ class DServerStorageBroker(BaseStorageBroker):
 
     def _get_server_url(self, path):
         """Construct full URL for dserver API."""
-        protocol = _get_protocol(self._server, config_path=self._config_path)
-        return f"{protocol}://{self._server}{path}"
+        base_url = _server_url(self._server, config_path=self._config_path)
+        return f"{base_url}{path}"
 
     def _api_request(self, method, path, **kwargs):
         """Make authenticated request to dserver."""
-        url = self._get_server_url(path)
-        headers = kwargs.pop('headers', {})
-        headers['Authorization'] = f'Bearer {self._get_token()}'
-
-        try:
-            response = requests.request(method, url, headers=headers, **kwargs)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code
-            # Try to extract error description from JSON response
-            # Flask-smorest uses 'message', werkzeug uses 'description',
-            # flask-jwt-extended uses 'msg'
-            try:
-                error_data = e.response.json()
-                description = (
-                    error_data.get('message') or
-                    error_data.get('description') or
-                    error_data.get('msg') or
-                    str(e)
-                )
-            except (ValueError, KeyError):
-                description = str(e)
-
-            if status_code == 401:
-                raise DServerAuthenticationError(
-                    f"Authentication failed ({description}). "
-                    f"Check your token."
-                )
-            elif status_code == 404:
-                raise DServerDatasetNotFoundError(
-                    f"Dataset not found on dserver: {description}"
-                )
-            elif status_code == 501:
-                raise DServerNotImplementedError(
-                    f"Operation not supported by dserver or storage backend: {description}"
-                )
-            raise DServerStorageBrokerError(f"API request failed: {e}")
-        except requests.exceptions.RequestException as e:
-            raise _connection_error(url, e)
+        return _api_request(self._server, method, path,
+                            config_path=self._config_path, **kwargs)
 
     # === Cache Directory ===
 
@@ -702,45 +722,67 @@ class DServerStorageBroker(BaseStorageBroker):
     # === Class Methods ===
 
     @classmethod
-    def _parse_base_uri(cls, base_uri):
-        """Parse a dserver base URI into (server, backend_base_uri)."""
+    def _parse_base_uri(cls, base_uri, allow_server=False):
+        """Parse a dserver base URI into (server, backend_base_uri).
+
+        With allow_server, dserver://<server>/ is accepted as well and gives
+        backend_base_uri None.
+        """
         parsed = urlparse(base_uri)
         server = parsed.netloc
         path_parts = [p for p in parsed.path.strip('/').split('/') if p]
 
+        if server and allow_server and not path_parts:
+            return server, None
+
         if not server or len(path_parts) != 2:
+            # For dserver://<server>/, e.g. `dtool cp ... dserver://server/`,
+            # name the storage locations to choose from.
+            hint = "" if path_parts else cls._storage_locations_hint(server)
             raise ValueError(
                 f"Invalid dserver base URI: {base_uri}. Expected "
                 f"dserver://<server>/<backend>/<bucket>, "
-                f"e.g. dserver://example.org/s3/my-bucket"
+                f"e.g. dserver://{server or 'example.org'}/s3/my-bucket{hint}"
             )
 
         backend, bucket = path_parts
         return server, f"{backend}://{bucket}"
 
     @classmethod
-    def list_dataset_uris(cls, base_uri, config_path=None):
-        """List datasets by querying dserver API."""
-        server, backend_base_uri = cls._parse_base_uri(base_uri)
+    def _storage_locations_hint(cls, server):
+        """Name the storage locations of a server, if they can be fetched."""
+        if not server:
+            return ""
+        try:
+            response = _api_request(server, 'GET', '/base-uris', timeout=10)
+            locations = [
+                f"dserver://{server}/{item['base_uri'].replace('://', '/', 1)}"
+                for item in response.json()]
+        except Exception:
+            return ""
+        if not locations:
+            return ""
+        return ". Storage locations you have access to: " + \
+            ", ".join(locations)
 
-        token = lookup_token(server, config_path=config_path)
-        protocol = _get_protocol(server, config_path=config_path)
+    @classmethod
+    def list_dataset_uris(cls, base_uri, config_path=None):
+        """List datasets by querying dserver API.
+
+        dserver://<server>/ lists the datasets in all storage locations the
+        user can search.
+        """
+        server, backend_base_uri = cls._parse_base_uri(
+            base_uri, allow_server=True)
+        query = {'base_uris': [backend_base_uri]} if backend_base_uri else {}
 
         # Query dserver for URIs, following pagination
         uris = []
         page = 1
         while True:
-            url = f"{protocol}://{server}/uris"
-            try:
-                response = requests.post(
-                    url,
-                    headers={'Authorization': f'Bearer {token}'},
-                    params={'page': page, 'page_size': 100},
-                    json={'base_uris': [backend_base_uri]}
-                )
-            except requests.exceptions.RequestException as e:
-                raise _connection_error(url, e)
-            response.raise_for_status()
+            response = _api_request(
+                server, 'POST', '/uris', config_path=config_path,
+                params={'page': page, 'page_size': 100}, json=query)
 
             for item in response.json():
                 backend_uri = item['uri']
